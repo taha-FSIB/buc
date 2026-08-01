@@ -118,6 +118,22 @@ export const VideoIcon: FC = () => (
   </Svg>
 );
 
+export const CalendarIcon: FC = () => (
+  <Svg>
+    <rect x="3" y="5" width="18" height="16" rx="2" />
+    <path d="M3 10h18" />
+    <path d="M8 3v4" />
+    <path d="M16 3v4" />
+  </Svg>
+);
+
+export const MailIcon: FC = () => (
+  <Svg>
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+    <path d="m3.5 6.5 8.5 6 8.5-6" />
+  </Svg>
+);
+
 /* -- Who can see it? ------------------------------------------------------- */
 
 export const PersonIcon: FC = () => (

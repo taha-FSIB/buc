@@ -37,20 +37,42 @@ adminRoutes.get('/admin', requireAdmin, async (c) => {
       `SELECT
          (SELECT COUNT(*) FROM public_submissions WHERE status = 'pending') AS posts,
          (SELECT COUNT(*) FROM flipbook_pages WHERE status = 'submitted')  AS pages,
-         (SELECT COUNT(*) FROM members WHERE status = 'invited')           AS invited`,
+         (SELECT COUNT(*) FROM members WHERE status = 'invited')           AS invited,
+         (SELECT COUNT(*) FROM public_messages WHERE handled_at IS NULL)   AS messages`,
     )
-    .first<{ posts: number; pages: number; invited: number }>();
+    .first<{ posts: number; pages: number; invited: number; messages: number }>();
+
+  const waiting = counts?.posts ?? 0;
 
   return c.html(
     <Layout title="Admin" viewer={viewer} tab="more" back={{ href: '/more', label: 'More' }}>
       <h1>Admin</h1>
-      <p class="page-intro">
-        Nothing reaches the public pages without one of us reading it first.
-      </p>
 
-      <a class="card" href="/admin/queue">
-        <h2>Memories waiting for approval</h2>
-        <p class="card-meta">{counts?.posts ?? 0} waiting</p>
+      {/* The approval queue is the whole reason this screen exists, so it gets
+          the top of the page and the only coloured border. Everything else is
+          housekeeping that can wait. */}
+      <a class="card card-primary" href="/admin/queue">
+        <h2>
+          {waiting === 0 ? 'Nothing waiting for approval'
+            : waiting === 1 ? 'One memory is waiting for you'
+            : `${waiting} memories are waiting for you`}
+        </h2>
+        <p class="card-meta">
+          {waiting === 0
+            ? 'Everything offered to the public pages has been dealt with.'
+            : 'Nothing reaches the public pages until one of us reads it.'}
+        </p>
+      </a>
+
+      <h2 class="section-title">Everything else</h2>
+
+      <a class="card" href="/admin/messages">
+        <h2>Messages from outside</h2>
+        <p class="card-meta">
+          {(counts?.messages ?? 0) === 0
+            ? 'Nothing new from the Contact page'
+            : `${counts?.messages} to read`}
+        </p>
       </a>
       <a class="card" href="/admin/reunion">
         <h2>Who is coming to the reunion</h2>
@@ -90,7 +112,30 @@ adminRoutes.get('/admin/queue', requireAdmin, async (c) => {
         WHERE s.status = 'pending'
         ORDER BY s.created_at`,
     )
-    .all<{ id: string; title: string; body: string | null; medium: string; author_name: string }>();
+    .all<{
+      id: string; title: string; body: string | null;
+      medium: string; author_name: string; created_at: number;
+    }>();
+
+  // Whatever hangs off each submission, so nobody approves a photograph they
+  // have not looked at. /media/:id lets an admin through for exactly these.
+  const media = new Map<string, { id: string; kind: string; mime_type: string; alt_text: string | null }[]>();
+  if (results.length) {
+    const ids = results.map((p) => p.id);
+    const { results: rows } = await c.env.DB
+      .prepare(
+        `SELECT id, post_id, kind, mime_type, alt_text FROM media
+          WHERE post_id IN (${ids.map((_, i) => `?${i + 1}`).join(',')})
+          ORDER BY created_at`,
+      )
+      .bind(...ids)
+      .all<{ id: string; post_id: string; kind: string; mime_type: string; alt_text: string | null }>();
+
+    for (const r of rows) {
+      if (!media.has(r.post_id)) media.set(r.post_id, []);
+      media.get(r.post_id)!.push(r);
+    }
+  }
 
   return c.html(
     <Layout title="Waiting for approval" viewer={viewer} tab="more"
@@ -98,7 +143,8 @@ adminRoutes.get('/admin/queue', requireAdmin, async (c) => {
       <h1>Waiting for approval</h1>
       <p class="page-intro">
         These members have offered a memory to the public pages. Nothing here
-        is visible to anyone outside the batch yet.
+        is visible to anyone outside the batch yet, and nothing will be until
+        you say so.
       </p>
 
       {results.length === 0 ? (
@@ -111,7 +157,24 @@ adminRoutes.get('/admin/queue', requireAdmin, async (c) => {
         results.map((p) => (
           <div class="card">
             <h2>{p.title || 'Untitled'}</h2>
-            <p class="card-meta">{p.author_name}</p>
+            <p class="card-meta">Offered by {p.author_name}</p>
+
+            {(media.get(p.id) ?? []).map((m) =>
+              m.kind === 'photo' ? (
+                <img src={`/media/${m.id}`} alt={m.alt_text ?? ''} loading="lazy"
+                     style="border-radius:12px;margin:0.75rem 0;display:block" />
+              ) : m.kind === 'audio' ? (
+                <audio controls preload="metadata" style="width:100%;margin:0.75rem 0">
+                  <source src={`/media/${m.id}`} type={m.mime_type} />
+                </audio>
+              ) : m.kind === 'video' ? (
+                <video controls preload="metadata" playsinline
+                       style="width:100%;border-radius:12px;margin:0.75rem 0">
+                  <source src={`/media/${m.id}`} type={m.mime_type} />
+                </video>
+              ) : null,
+            )}
+
             {p.body && <p class="card-body">{p.body.slice(0, 400)}</p>}
             <p style="margin:0.75rem 0">
               <a class="back" href={`/post/${p.id}`}>Read the whole thing</a>
@@ -129,7 +192,8 @@ adminRoutes.get('/admin/queue', requireAdmin, async (c) => {
               <div class="field">
                 <label for={`note-${p.id}`}>If you say no, tell them why</label>
                 <span class="hint">
-                  They will see this. A kind sentence saves a phone call.
+                  They will see this on their own copy. A kind sentence saves a
+                  phone call.
                 </span>
                 <input id={`note-${p.id}`} name="note" type="text" maxlength={300} />
               </div>
@@ -140,8 +204,99 @@ adminRoutes.get('/admin/queue', requireAdmin, async (c) => {
           </div>
         ))
       )}
+
+      {results.length > 0 && (
+        <p class="page-intro" style="margin-top:2rem">
+          You do not have to decide today. Anything you leave alone stays here,
+          private, until somebody gets to it.
+        </p>
+      )}
     </Layout>,
   );
+});
+
+/* -- Messages from the Contact page ---------------------------------------- */
+adminRoutes.get('/admin/messages', requireAdmin, async (c) => {
+  const viewer = viewerOf(c);
+
+  const { results } = await c.env.DB
+    .prepare(
+      `SELECT pm.id, pm.name, pm.email, pm.body, pm.created_at, pm.handled_at,
+              COALESCE(m.preferred_name, m.full_name) AS handled_by_name
+         FROM public_messages pm
+         LEFT JOIN members m ON m.id = pm.handled_by
+        ORDER BY pm.handled_at IS NOT NULL, pm.created_at DESC
+        LIMIT 100`,
+    )
+    .all<{
+      id: string; name: string; email: string | null; body: string;
+      created_at: number; handled_at: number | null; handled_by_name: string | null;
+    }>();
+
+  const open = results.filter((m) => m.handled_at === null);
+  const done = results.filter((m) => m.handled_at !== null);
+
+  const Message = ({ m, closed }: { m: typeof results[number]; closed?: boolean }) => (
+    <div class="card">
+      <h3>{m.name}</h3>
+      <p class="card-meta">
+        {m.email ? <a href={`mailto:${m.email}`}>{m.email}</a> : 'No address given'}
+        {' · '}
+        {new Date(m.created_at * 1000).toLocaleDateString('en-GB', {
+          day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC',
+        })}
+        {closed && m.handled_by_name && ` · dealt with by ${m.handled_by_name}`}
+      </p>
+      {m.body.split(/\n{2,}/).map((para) => <p class="card-body">{para}</p>)}
+      {!closed && (
+        <form method="post" action={`/admin/messages/${m.id}`} style="margin-top:0.75rem">
+          <button class="btn btn-secondary btn-compact" type="submit">
+            Mark as dealt with
+          </button>
+        </form>
+      )}
+    </div>
+  );
+
+  return c.html(
+    <Layout title="Messages" viewer={viewer} tab="more" back={{ href: '/admin', label: 'Admin' }}>
+      <h1>Messages from outside</h1>
+      <p class="page-intro">
+        Sent through the Contact page by people who are not in the batch —
+        family, friends, or the university.
+      </p>
+
+      {open.length === 0 ? (
+        <div class="empty">
+          <h2>Nothing new</h2>
+          <p>Everything that has come in has been dealt with.</p>
+          <a class="btn" href="/admin">Back to admin</a>
+        </div>
+      ) : (
+        open.map((m) => <Message m={m} />)
+      )}
+
+      {done.length > 0 && (
+        <>
+          <h2 class="section-title">Already dealt with</h2>
+          {done.map((m) => <Message m={m} closed />)}
+        </>
+      )}
+    </Layout>,
+  );
+});
+
+adminRoutes.post('/admin/messages/:id', requireAdmin, async (c) => {
+  const viewer = viewerOf(c);
+  await c.env.DB
+    .prepare(
+      `UPDATE public_messages SET handled_at = unixepoch(), handled_by = ?1
+        WHERE id = ?2 AND handled_at IS NULL`,
+    )
+    .bind(viewer.id, c.req.param('id'))
+    .run();
+
+  return c.redirect('/admin/messages', 303);
 });
 
 adminRoutes.post('/admin/queue/:postId', requireAdmin, async (c) => {

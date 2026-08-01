@@ -72,6 +72,64 @@ R2, so a refused upload never leaves bytes behind.
 
 ---
 
+## The public site
+
+Five pages, no session needed: **Home** (`/`), **Our Story** (`/our-story`),
+**Stories & Memories** (`/stories`), **Reunion** (`/reunion`) and **Contact**
+(`/contact`), with their own bottom navigation.
+
+`/` is one address with two front doors — the batch's public face to a
+visitor, a member's own feed once they sign in. A link pasted into a WhatsApp
+group should open something worth reading, which is why the public site lives
+at the root rather than behind `/public`. The old `/public` URLs 301 to
+`/stories`, so anything already shared keeps working. `/reunion` works the
+same way: the details to a visitor, the RSVP form to a member.
+
+**Nothing reaches these pages without both facts.** Every query runs through
+`publicFeed` or `getPost` with a null viewer, which resolve against
+`PUBLIC_POST_IDS`: an explicit `public` share from the author **and**
+`public_submissions.status = 'approved'`. The enforcement is in the SQL, not
+in what the templates choose to render — a mistake in the markup cannot
+publish anything. A rejection drops the post straight back to private, and
+takes the moderator's own access with it.
+
+The copy on Our Story and Contact is written in `src/routes/publicSite.tsx`.
+There is no page editor: two pages that will settle down after the first week
+are not worth building one for. **The committee will need someone to make
+changes for them** — worth knowing before they ask.
+
+### Contact
+
+A Contact page that only prints an email address is a dead end for whoever
+uses it — they cannot tell if anything arrived. Messages land in the database
+and appear on the admin dashboard instead, so nothing depends on a mail server
+being configured. Expect a relative of a classmate, or somebody from the
+university.
+
+Spam defences are a honeypot field and a limit of ten an hour per sender, on a
+hashed IP that is never stored raw. Over the limit the page still says thank
+you: telling a flooder they have been spotted only tells them to change
+address. That does mean a genuine eleventh message would be lost, which is why
+the limit is set where no real person will reach it.
+
+---
+
+## The approval queue
+
+The admin dashboard opens on it, and it is the only thing on that screen with
+a coloured border. Everything else there is housekeeping.
+
+An admin can **approve** (it appears on Stories & Memories immediately),
+**reject with a note** (the author sees the note on their own copy, so a "no"
+is never silent), or **leave it** — pending is a valid outcome and the screen
+says so rather than pressing for a decision.
+
+Photographs, audio and video are rendered in the queue itself. Approving a
+picture you have not looked at is not moderation, and before Phase 2 the
+"Read the whole thing" link 404'd on the admin — see `getPostForModeration`.
+
+---
+
 ## Groups
 
 A group is the members' own — **no site admin is involved in running one**.
@@ -193,8 +251,9 @@ npm run check:visibility -- http://127.0.0.1:8787
 `scripts/check-visibility.mjs` drives the running app — real sessions, real
 uploads to R2, real routes — and asserts a full matrix of who can read what:
 five viewers plus an anonymous visitor against private, friend-shared,
-group-shared, pending, approved and draft posts, and the media hanging off
-them. It cleans up after itself.
+group-shared, pending, approved, rejected and draft posts, the media hanging
+off them, group covers and invitations, and every public listing. It cleans up
+after itself.
 
 It exists because reading the SQL and nodding is not a test. It caught a real
 bug the first time it ran: an admin got a 404 on the very post they were being
@@ -277,7 +336,7 @@ No mail server has to be working for either of these. That was the point.
 ```
 migrations/          D1 schema, applied in order
 src/
-  index.tsx          Entry, session middleware, home feed, error pages
+  index.tsx          Entry, session middleware, the two front doors, errors
   lib/
     visibility.ts    THE privacy rule — every read goes through here
     auth.ts          Sign-in links, PBKDF2 passphrases, hashed session tokens

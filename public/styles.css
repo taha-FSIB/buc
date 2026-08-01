@@ -219,6 +219,13 @@ h3 { font-size: 1.1rem; }
 
 .card-body { margin: 0; }
 
+/* The one card on a screen that is the reason for the screen. */
+.card-primary {
+  border-color: var(--accent);
+  border-width: 3px;
+  background: var(--warn-bg);
+}
+
 a.card {
   display: block;
   text-decoration: none;

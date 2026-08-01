@@ -313,21 +313,59 @@ async function main() {
     assertReach('anonymous', await status(path, null), anonymous);
   }
 
-  // The public feed is its own read path and must agree with the matrix.
-  console.log('\nthe anonymous public feed');
-  const feed = await (await fetch(`${BASE}/public`)).text();
-  for (const [key, shouldAppear] of [
-    ['approved', true], ['pending', false], ['pendingPhoto', false], ['private', false],
-  ]) {
+  // Every public page must be reachable with no session at all.
+  console.log('\nthe public site, with no session');
+  for (const path of ['/', '/our-story', '/stories', '/reunion', '/contact']) {
     checks++;
-    const appears = feed.includes(posts[key]);
-    if (appears !== shouldAppear) {
-      failures++;
-      console.error(`  FAIL  ${key} post ${shouldAppear ? 'missing from' : 'leaked into'} /public`);
-    } else {
-      console.log(`  ok    ${key} post ${shouldAppear ? 'listed' : 'absent'}`);
+    const code = await status(path, null);
+    if (code === 200) console.log(`  ok    ${path} (200)`);
+    else { failures++; console.error(`  FAIL  ${path} returned ${code} to a visitor`); }
+  }
+
+  // Each public listing is its own read path and must agree with the matrix.
+  // Checked on the home page as well as the index, because the home page runs
+  // a second query and a mistake there would publish just as effectively.
+  for (const [label, path] of [['/stories', '/stories'], ['the home page', '/']]) {
+    console.log(`\nwhat ${label} lists`);
+    const feed = await (await fetch(`${BASE}${path}`)).text();
+    for (const [key, shouldAppear] of [
+      ['approved', true], ['pending', false], ['pendingPhoto', false], ['private', false],
+    ]) {
+      checks++;
+      const appears = feed.includes(posts[key]);
+      if (appears !== shouldAppear) {
+        failures++;
+        console.error(`  FAIL  ${key} post ${shouldAppear ? 'missing from' : 'leaked into'} ${path}`);
+      } else {
+        console.log(`  ok    ${key} post ${shouldAppear ? 'listed' : 'absent'}`);
+      }
     }
   }
+
+  // The public single-story route is a separate query from the listing, so it
+  // gets its own assertions rather than being assumed to agree.
+  console.log('\nthe public story page');
+  assertReach('an approved story', await status(`/stories/${posts.approved}`, null), true);
+  assertReach('one still pending', await status(`/stories/${posts.pending}`, null), false);
+  assertReach('a private one', await status(`/stories/${posts.private}`, null), false);
+  assertReach('a private one, even to its author',
+    await status(`/stories/${posts.private}`, cookies.author), false);
+
+  // A rejection leaves the author's 'public' share row in place — they asked,
+  // and may ask again. Only the admin's decision was withdrawn, so the post
+  // must fall back to being private, and the moderator's own access must go
+  // with it.
+  console.log('\na submission that was rejected');
+  const rejected = await createPost(cookies.author, {
+    kind: 'story', title: 'vtest rejected', visibility: 'public',
+  });
+  await post(`/admin/queue/${rejected}`, cookies.admin,
+    { decision: 'rejected', note: 'Not this one.' });
+  assertReach('anonymous', await status(`/stories/${rejected}`, null), false);
+  assertReach('another member', await status(`/post/${rejected}`, cookies.friend), false);
+  assertReach('the admin who rejected it', await status(`/post/${rejected}`, cookies.admin), false);
+  assertReach('its author', await status(`/post/${rejected}`, cookies.author), true);
+  posts.rejected = rejected;
 
   /* -- Groups: covers, invitations, and an owner taking a post out --------- */
   console.log('\ngroup covers');

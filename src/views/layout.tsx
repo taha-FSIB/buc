@@ -2,6 +2,7 @@ import type { FC, PropsWithChildren } from 'hono/jsx';
 import type { Viewer } from '../lib/auth';
 import {
   HomeIcon, VaultIcon, GroupsIcon, SouvenirIcon, MoreIcon, BackIcon, LockIcon,
+  PenIcon, CalendarIcon, MailIcon,
 } from './icons';
 
 interface LayoutProps {
@@ -9,8 +10,16 @@ interface LayoutProps {
   viewer: Viewer | null;
   /** Which bottom tab to highlight. */
   tab?: 'home' | 'vault' | 'groups' | 'book' | 'more';
+  /**
+   * Which public tab to highlight. Set on the five pages a visitor can reach
+   * without signing in; ignored once somebody is signed in, because then the
+   * member navigation is the useful one.
+   */
+  publicTab?: 'home' | 'story' | 'stories' | 'reunion' | 'contact';
   /** Renders a "back" affordance so no screen is ever a dead end. */
   back?: { href: string; label: string };
+  /** Description for search engines and for a link pasted into WhatsApp. */
+  description?: string;
 }
 
 const TABS = [
@@ -21,14 +30,27 @@ const TABS = [
   { key: 'more',   href: '/more',     Icon: MoreIcon,     label: 'More' },
 ] as const;
 
+/** The same five-item ceiling as the member bar, for the same reason. */
+const PUBLIC_TABS = [
+  { key: 'home',    href: '/',           Icon: HomeIcon,     label: 'Home' },
+  { key: 'story',   href: '/our-story',  Icon: SouvenirIcon, label: 'Our Story' },
+  { key: 'stories', href: '/stories',    Icon: PenIcon,      label: 'Memories' },
+  { key: 'reunion', href: '/reunion',    Icon: CalendarIcon, label: 'Reunion' },
+  { key: 'contact', href: '/contact',    Icon: MailIcon,     label: 'Contact' },
+] as const;
+
 export const Layout: FC<PropsWithChildren<LayoutProps>> = ({
-  title, viewer, tab, back, children,
+  title, viewer, tab, publicTab, back, description, children,
 }) => (
   <html lang="en">
     <head>
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <title>{title} · BUC Alumni</title>
+      {description && <meta name="description" content={description} />}
+      {description && <meta property="og:description" content={description} />}
+      <meta property="og:title" content={`${title} · BUC Alumni`} />
+      <meta property="og:type" content="website" />
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
       <link
@@ -43,7 +65,9 @@ export const Layout: FC<PropsWithChildren<LayoutProps>> = ({
 
       <header class="site-header">
         <div class="wrap">
-          <a class="brand" href={viewer ? '/' : '/welcome'}>
+          {/* Always the root: signed in that is the member feed, signed out it
+              is the public home. Either way it is "the start". */}
+          <a class="brand" href="/">
             BUC Alumni
             <span>Pioneer Batch</span>
           </a>
@@ -67,7 +91,7 @@ export const Layout: FC<PropsWithChildren<LayoutProps>> = ({
         {children}
       </main>
 
-      {viewer && (
+      {viewer ? (
         <nav class="tabbar" aria-label="Main">
           {TABS.map(({ key, href, Icon, label }) => (
             <a href={href} aria-current={tab === key ? 'page' : undefined}>
@@ -76,7 +100,16 @@ export const Layout: FC<PropsWithChildren<LayoutProps>> = ({
             </a>
           ))}
         </nav>
-      )}
+      ) : publicTab ? (
+        <nav class="tabbar" aria-label="Main">
+          {PUBLIC_TABS.map(({ key, href, Icon, label }) => (
+            <a href={href} aria-current={publicTab === key ? 'page' : undefined}>
+              <Icon />
+              {label}
+            </a>
+          ))}
+        </nav>
+      ) : null}
     </body>
   </html>
 );

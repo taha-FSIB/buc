@@ -76,7 +76,8 @@ reunionRoutes.get('/reunion', async (c) => {
   }
 
   return c.html(
-    <Layout title="The Reunion" viewer={viewer ?? null} tab="home">
+    <Layout title="The Reunion" viewer={viewer ?? null} tab="home" publicTab="reunion"
+            description={`${event.name} — ${humanDates(event.starts_on, event.ends_on)}${event.venue ? `, ${event.venue}` : ''}.`}>
       <h1>{event.name}</h1>
       <p class="page-intro" style="font-size:1.15rem;color:var(--ink)">
         <strong>{humanDates(event.starts_on, event.ends_on)}</strong>

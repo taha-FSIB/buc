@@ -12,7 +12,7 @@ import { postRoutes } from './routes/posts';
 import { groupRoutes } from './routes/groups';
 import { souvenirRoutes } from './routes/souvenir';
 import { adminRoutes } from './routes/admin';
-import { publicRoutes } from './routes/publicSite';
+import { publicRoutes, publicHome } from './routes/publicSite';
 import { moreRoutes } from './routes/more';
 import { mediaRoutes } from './routes/media';
 import { reunionRoutes } from './routes/reunion';
@@ -32,10 +32,14 @@ app.get('/styles.css', (c) => c.env.ASSETS.fetch(c.req.raw));
 app.get('/transcripts.js', (c) => c.env.ASSETS.fetch(c.req.raw));
 app.get('/islands.js', (c) => c.env.ASSETS.fetch(c.req.raw));
 
-/* -- Home feed ------------------------------------------------------------- */
+/* -- Home ------------------------------------------------------------------ */
+// One address, two front doors. A visitor from outside gets the batch's public
+// face; a member gets their own feed. The public site is what a link pasted
+// into a WhatsApp group should open, so it lives at the root rather than
+// behind /public.
 app.get('/', async (c) => {
   const viewer = c.get('viewer');
-  if (!viewer) return c.redirect('/welcome', 303);
+  if (!viewer) return publicHome(c);
 
   const { results } = await feedForViewer(c.env.DB, viewer.id);
   const mine = results.filter((p) => p.author_id === viewer.id).length;
@@ -115,7 +119,7 @@ app.notFound((c) => {
         The link may be old, or it may be something that is not shared with
         you. Neither is anything to worry about.
       </p>
-      <a class="btn btn-block" href={viewer ? '/' : '/welcome'}>
+      <a class="btn btn-block" href="/">
         {viewer ? 'Go to my home page' : 'Go to the start'}
       </a>
     </Layout>,
@@ -133,7 +137,7 @@ app.onError((err, c) => {
         Nothing you did caused this, and nothing of yours has been lost.
         Please try again in a moment.
       </p>
-      <a class="btn btn-block" href={viewer ? '/' : '/welcome'}>Go back</a>
+      <a class="btn btn-block" href="/">Go back</a>
     </Layout>,
     500,
   );
