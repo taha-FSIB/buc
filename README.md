@@ -72,6 +72,35 @@ R2, so a refused upload never leaves bytes behind.
 
 ---
 
+## Groups
+
+A group is the members' own — **no site admin is involved in running one**.
+Whoever starts it decides who joins, can remove a member, and can take a post
+out of the group.
+
+| Who can join | What happens |
+|---|---|
+| Anyone in the batch | Instant. They are in |
+| People ask | Lands as `pending`; the owner lets them in |
+| The owner adds people | Lands as `invited`; **they still have to accept** |
+
+That last row matters. Being invited is not being in: an invitation grants no
+read access at all until the member says yes. Nobody is put into a group
+without agreeing to it, which for a family sub-group is the whole point.
+
+**Taking a post out of a group deletes one share grant and nothing else.** The
+memory stays in its author's vault and stays wherever else they shared it. An
+owner looks after their own group; they do not get to delete somebody's
+memory. An owner also cannot remove another owner — two people who started
+something together should not be able to eject one another mid-argument. Both
+actions are written to `audit_log`.
+
+An **unlisted** group is invisible to anyone without a membership row: not in
+the directory, and its page 404s. Its cover photograph is hidden too, since a
+picture is as much of a leak as a name.
+
+---
+
 ## Signing in
 
 There is no public signup. An admin adds a member, and that is the only way in.

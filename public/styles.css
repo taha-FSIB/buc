@@ -657,6 +657,24 @@ textarea { min-height: 9rem; resize: vertical; line-height: 1.6; }
 .avatar-large { width: 120px; height: 120px; }
 .avatar-large.avatar-blank { font-size: 3rem; }
 
+/* A group's cover. Fixed aspect so a row of cards does not jump about as the
+   images arrive, and cropped rather than letterboxed. */
+.group-cover {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 1;
+  object-fit: cover;
+  border-radius: var(--radius);
+  border: 2px solid var(--line);
+  margin-bottom: 0.8rem;
+  background: var(--paper);
+}
+
+.group-cover-large { aspect-ratio: 5 / 2; margin-bottom: var(--space-md); }
+
+/* A member row that carries an owner action beside the name. */
+.member-list li form { margin: 0 0 0.6rem; padding-left: calc(56px + 0.9rem); }
+
 .member-head {
   display: flex;
   align-items: center;

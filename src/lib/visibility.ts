@@ -262,9 +262,10 @@ export async function submitForPublic(
 /**
  * Media inherits its post's visibility. Media not attached to a post is
  * readable by its owner, by anyone once the souvenir page carrying it is
- * approved, and — for a member's profile photograph — by any signed-in member.
- * A profile photo is shown in the Directory, so it is visible to the batch by
- * design; it is still never visible to the anonymous public site.
+ * approved, and — for profile photographs and group covers — by signed-in
+ * members. Those two are shown in the Directory and the group list, so they
+ * are visible to the batch by design; neither is ever served to the anonymous
+ * public site.
  */
 export async function canReadMedia(
   db: D1Database,
@@ -296,6 +297,22 @@ export async function canReadMedia(
       .bind(mediaId)
       .first();
     if (isProfilePhoto) return row;
+
+    // A group's cover: to the batch if the group is listed — its existence is
+    // already on the directory page — and otherwise only to people with a
+    // membership row. An unlisted group gives nothing away, cover included.
+    const isVisibleCover = await db
+      .prepare(
+        `SELECT 1 FROM groups g
+          WHERE g.cover_media_id = ?1
+            AND (g.listed = 1
+                 OR EXISTS (SELECT 1 FROM group_members gm
+                             WHERE gm.group_id = g.id AND gm.member_id = ?2))
+          LIMIT 1`,
+      )
+      .bind(mediaId, viewerId)
+      .first();
+    if (isVisibleCover) return row;
   }
 
   // Unattached media: visible once it appears on an approved souvenir page.

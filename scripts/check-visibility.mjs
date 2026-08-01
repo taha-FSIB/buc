@@ -93,8 +93,10 @@ function cleanup() {
   sql([
     'PRAGMA foreign_keys = ON;',
     "DELETE FROM posts WHERE author_id LIKE 'vtest_%';",
-    "DELETE FROM group_members WHERE group_id = 'vtest_group';",
-    "DELETE FROM groups WHERE id = 'vtest_group';",
+    `DELETE FROM group_members WHERE group_id IN
+       (SELECT id FROM groups WHERE id = 'vtest_group' OR name LIKE 'vtest%');`,
+    "DELETE FROM groups WHERE id = 'vtest_group' OR name LIKE 'vtest%';",
+    "DELETE FROM media WHERE owner_id LIKE 'vtest_%';",
     "DELETE FROM login_links WHERE member_id LIKE 'vtest_%';",
     "DELETE FROM sessions WHERE member_id LIKE 'vtest_%';",
     "DELETE FROM members WHERE id LIKE 'vtest_%';",
@@ -143,6 +145,39 @@ async function createPost(cookie, { kind, title, visibility, groupId, withPhoto 
   const id = new URL(res.headers.get('location'), BASE).pathname.split('/')[2];
   if (!id) throw new Error(`could not read a post id back for "${title}"`);
   return id;
+}
+
+async function createGroup(cookie, { name, listed, joinPolicy = 'invite' }) {
+  const body = new FormData();
+  body.set('name', name);
+  body.set('description', 'Fixture created by check-visibility.mjs');
+  body.set('kind', 'other');
+  body.set('join_policy', joinPolicy);
+  if (listed) body.set('listed', '1');
+  body.set('cover', new Blob([PIXEL], { type: 'image/png' }), 'cover.png');
+
+  const res = await fetch(`${BASE}/groups/new`, {
+    method: 'POST', headers: { cookie }, body, redirect: 'manual',
+  });
+  if (res.status !== 303) {
+    throw new Error(`creating group "${name}" returned ${res.status}`);
+  }
+  return new URL(res.headers.get('location'), BASE).pathname.split('/')[2];
+}
+
+async function coverIdOf(cookie, groupId) {
+  const html = await (await fetch(`${BASE}/groups/${groupId}`, { headers: { cookie } })).text();
+  const m = html.match(/\/media\/([a-z0-9]+)/);
+  if (!m) throw new Error(`no cover found on group ${groupId}`);
+  return m[1];
+}
+
+async function post(path, cookie, fields = {}) {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'POST', headers: { cookie },
+    body: new URLSearchParams(fields), redirect: 'manual',
+  });
+  return res.status;
 }
 
 async function share(cookie, postId, kind, audienceId) {
@@ -294,12 +329,81 @@ async function main() {
     }
   }
 
+  /* -- Groups: covers, invitations, and an owner taking a post out --------- */
+  console.log('\ngroup covers');
+  const listedGroup = await createGroup(cookies.author, {
+    name: 'vtest listed group', listed: true,
+  });
+  const secretGroup = await createGroup(cookies.author, {
+    name: 'vtest unlisted group', listed: false,
+  });
+  const listedCover = await coverIdOf(cookies.author, listedGroup);
+  const secretCover = await coverIdOf(cookies.author, secretGroup);
+
+  assertReach('listed cover, to a member', await status(`/media/${listedCover}`, cookies.stranger), true);
+  assertReach('listed cover, anonymous', await status(`/media/${listedCover}`, null), false);
+  assertReach('unlisted cover, to an outsider', await status(`/media/${secretCover}`, cookies.stranger), false);
+  assertReach('unlisted cover, to its owner', await status(`/media/${secretCover}`, cookies.author), true);
+  assertReach('the unlisted group page, to an outsider', await status(`/groups/${secretGroup}`, cookies.stranger), false);
+
+  console.log('\nan invitation that has not been accepted');
+  const secretPost = await createPost(cookies.author, {
+    kind: 'story', title: 'vtest inside the unlisted group',
+    visibility: 'group', groupId: secretGroup,
+  });
+  checks++;
+  if (await post(`/groups/${secretGroup}/invite`, cookies.author, { member_id: PEOPLE.stranger.id }) !== 303) {
+    failures++; console.error('  FAIL  owner could not invite');
+  } else console.log('  ok    owner invited them');
+
+  // Being invited is not being in. Nothing is readable until they say yes.
+  assertReach('invited, before accepting', await status(`/post/${secretPost}`, cookies.stranger), false);
+  await post(`/groups/${secretGroup}/accept`, cookies.stranger);
+  assertReach('after accepting', await status(`/post/${secretPost}`, cookies.stranger), true);
+
+  console.log('\nan owner taking a post out of their group');
+  const matePost = await createPost(cookies.grpmate, {
+    kind: 'story', title: 'vtest from a group member',
+    visibility: 'group', groupId: 'vtest_group',
+  });
+  assertReach('owner sees it', await status(`/post/${matePost}`, cookies.author), true);
+
+  // A member who is not the owner must not be able to unshare it.
+  checks++;
+  const refused = await post(`/groups/vtest_group/posts/${matePost}/remove`, cookies.grpmate);
+  if (refused === 404) console.log('  ok    a non-owner cannot take it out (404)');
+  else { failures++; console.error(`  FAIL  a non-owner got HTTP ${refused} removing a post`); }
+  assertReach('still readable after that attempt', await status(`/post/${matePost}`, cookies.author), true);
+
+  await post(`/groups/vtest_group/posts/${matePost}/remove`, cookies.author);
+  assertReach('owner loses it once removed', await status(`/post/${matePost}`, cookies.author), false);
+  assertReach('its author still has it', await status(`/post/${matePost}`, cookies.grpmate), true);
+
   // Delete through the app so the R2 objects go with the rows.
+  for (const c of [[secretPost, cookies.author], [matePost, cookies.grpmate]]) {
+    await fetch(`${BASE}/post/${c[0]}/delete`, {
+      method: 'POST', headers: { cookie: c[1] }, redirect: 'manual',
+    });
+  }
   for (const id of Object.values(posts)) {
     await fetch(`${BASE}/post/${id}/delete`, {
       method: 'POST', headers: { cookie: cookies.author }, redirect: 'manual',
     });
   }
+
+  // Group covers are not attached to a post, so nothing cascades them out of
+  // R2. Drop them through the settings form, which does delete the object.
+  for (const id of [listedGroup, secretGroup]) {
+    const body = new FormData();
+    body.set('name', 'vtest cleanup');
+    body.set('kind', 'other');
+    body.set('join_policy', 'invite');
+    body.set('remove_cover', '1');
+    await fetch(`${BASE}/groups/${id}/edit`, {
+      method: 'POST', headers: { cookie: cookies.author }, body, redirect: 'manual',
+    });
+  }
+
   cleanup();
 
   console.log(`\n${checks - failures}/${checks} checks passed.`);
