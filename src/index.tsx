@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { getCookie } from 'hono/cookie';
 import type { AppBindings } from './types';
-import { Layout, VisibilityChip } from './views/layout';
+import { Layout, VisibilityChip, ErrorNotice } from './views/layout';
 import {
   SESSION_COOKIE, resolveSession, createSession, destroySession,
   verifyPassphrase, sessionCookie, clearedCookie,
@@ -88,12 +88,9 @@ app.post('/signin', async (c) => {
     // One message for every failure mode — never reveal which emails exist.
     return c.html(
       <Layout title="Sign in" viewer={null} back={{ href: '/welcome', label: 'Back' }}>
-        <div class="notice notice-error">
-          <strong>That did not work.</strong>
-          <p style="margin:0.35rem 0 0">
-            Please check the email and passphrase and try once more.
-          </p>
-        </div>
+        <ErrorNotice title="That did not work.">
+          <p>Please check the email and passphrase and try once more.</p>
+        </ErrorNotice>
         <a class="btn btn-block" href="/signin">Try again</a>
         <p style="margin-top:1.25rem">
           <a class="back" href="/signin/forgot">Send me a sign-in code instead</a>

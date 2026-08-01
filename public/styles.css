@@ -1,33 +1,43 @@
 /*
  * BUC Alumni Portal — one stylesheet, no build step, no framework.
+ * Rules and tokens follow design-system/buc-alumni-portal/MASTER.md.
  *
- * Design constraints driving every value below:
- *   - Readers are 60-75 years old, mostly on phones, often outdoors.
- *   - Base type is 19px, not the usual 16px. Line height is generous.
- *   - Every tappable thing is at least 48px tall with space around it.
- *   - Contrast beats subtlety. No grey-on-grey, no hairline borders.
- *   - Warm paper tones, not corporate white — this is a keepsake, not a SaaS.
+ * Style: "Accessible & Ethical" (WCAG AAA), not the generator's default
+ * "Exaggerated Minimalism" — see the Deviations table in MASTER.md.
+ *
+ * Every colour pair below was measured, not eyeballed:
+ *   ink on paper 16.86:1 · ink-soft on paper 7.36:1 · accent on paper 7.05:1
+ *   white on accent 7.31:1 · teal on paper 7.31:1        (AAA needs 7:1)
  */
 
 :root {
-  --paper:      #fbf7f0;  /* warm off-white, easier than white in sunlight */
-  --card:       #ffffff;
-  --ink:        #2a2320;  /* warm near-black, 14.8:1 on --paper */
-  --ink-soft:   #5c514a;  /* 7.1:1 on --paper — still passes AA for body */
-  --line:       #e2d8c9;
-  --accent:     #b4522e;  /* terracotta */
-  --accent-dark:#8d3f22;
-  --teal:       #1f5f5b;
-  --teal-soft:  #e6f0ee;
-  --warn-bg:    #fdf2e2;
-  --warn-line:  #d9a441;
+  --paper:       #fffbeb;  /* warm cream, kinder than white in sunlight */
+  --card:        #ffffff;
+  --ink:         #1c1917;
+  --ink-soft:    #57534e;  /* the lightest grey still passing AAA on paper */
+  --line:        #e7e0cf;
+  --accent:      #9a3412;  /* terracotta */
+  --accent-dark: #7c2d12;
+  --on-accent:   #ffffff;
+  --teal:        #115e59;
+  --teal-soft:   #e6f0ee;
+  --warn-bg:     #fdf4e3;
+  --warn-line:   #a16207;
+  --err-bg:      #fdeee8;
+
+  /* Density 2/10 — spacious */
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 1.5rem;
+  --space-lg: 2rem;
+  --space-xl: 3rem;
 
   --radius: 14px;
-  --tap: 52px;              /* minimum height of anything you can touch */
+  --tap: 52px;              /* min height of anything tappable (44px floor +8) */
   --measure: 34rem;         /* comfortable reading width */
+  --tabbar-h: 68px;
 
-  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --serif: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+  --font: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -38,10 +48,27 @@ body {
   margin: 0;
   background: var(--paper);
   color: var(--ink);
-  font-family: var(--sans);
-  font-size: 19px;
+  font-family: var(--font);
+  font-size: 19px;          /* 16px is the floor, not the target */
   line-height: 1.6;
+  letter-spacing: 0;        /* never negative — it costs legibility */
 }
+
+/* --- Skip link ---------------------------------------------------------- */
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  padding: 0.75rem 1.25rem;
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 700;
+  border-radius: 0 0 var(--radius) 0;
+}
+
+.skip-link:focus { left: 0; }
 
 /* --- Layout ------------------------------------------------------------- */
 
@@ -52,14 +79,15 @@ body {
   padding: 0 1.1rem;
 }
 
-main { padding-bottom: 5rem; }
+/* Clears the fixed tab bar so it never covers the last card. */
+main { padding-bottom: calc(var(--tabbar-h) + var(--space-lg)); }
 
 /* --- Header ------------------------------------------------------------- */
 
 .site-header {
   background: var(--card);
   border-bottom: 2px solid var(--line);
-  padding: 0.9rem 0;
+  padding: 0.75rem 0;
 }
 
 .site-header .wrap {
@@ -70,8 +98,7 @@ main { padding-bottom: 5rem; }
 }
 
 .brand {
-  font-family: var(--serif);
-  font-size: 1.32rem;
+  font-size: 1.3rem;
   font-weight: 700;
   color: var(--ink);
   text-decoration: none;
@@ -80,15 +107,27 @@ main { padding-bottom: 5rem; }
 
 .brand span {
   display: block;
-  font-family: var(--sans);
-  font-size: 0.76rem;
+  font-size: 0.74rem;
   font-weight: 400;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--ink-soft);
 }
 
-/* --- Bottom navigation (thumb-reachable on a phone) --------------------- */
+.header-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap);
+  padding: 0 0.5rem;
+  color: var(--ink-soft);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.header-link:hover { color: var(--accent-dark); }
+
+/* --- Bottom navigation (thumb-reachable) -------------------------------- */
 
 .tabbar {
   position: fixed;
@@ -102,45 +141,49 @@ main { padding-bottom: 5rem; }
 
 .tabbar a {
   flex: 1;
-  min-height: var(--tap);
+  min-height: var(--tabbar-h);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  padding: 0.45rem 0.2rem;
-  font-size: 0.8rem;
-  font-weight: 600;
+  gap: 3px;
+  padding: 0.4rem 0.15rem;
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1.15;
+  text-align: center;
   color: var(--ink-soft);
   text-decoration: none;
+  cursor: pointer;
+  transition: color 180ms ease, box-shadow 180ms ease;
 }
 
+.tabbar a:hover { color: var(--accent-dark); }
+
+/* Current tab marked by colour AND a bar — never colour alone. */
 .tabbar a[aria-current="page"] {
   color: var(--accent);
   box-shadow: inset 0 3px 0 var(--accent);
 }
 
-.tabbar .glyph { font-size: 1.35rem; line-height: 1; }
+.tabbar svg { width: 25px; height: 25px; }
 
 /* --- Typography --------------------------------------------------------- */
 
-h1, h2, h3 {
-  font-family: var(--serif);
-  line-height: 1.25;
-  margin: 0 0 0.5rem;
-}
+h1, h2, h3 { line-height: 1.25; margin: 0 0 var(--space-sm); font-weight: 700; }
 
-h1 { font-size: 1.75rem; }
-h2 { font-size: 1.32rem; }
+h1 { font-size: 1.7rem; margin-top: var(--space-md); }
+h2 { font-size: 1.28rem; }
+h3 { font-size: 1.1rem; }
 
 .page-intro {
   color: var(--ink-soft);
   max-width: var(--measure);
-  margin: 0 0 1.5rem;
+  margin: 0 0 var(--space-md);
 }
 
 .section-title {
-  margin: 2rem 0 0.85rem;
+  margin: var(--space-lg) 0 0.85rem;
   padding-bottom: 0.4rem;
   border-bottom: 2px solid var(--line);
 }
@@ -151,14 +194,14 @@ h2 { font-size: 1.32rem; }
   background: var(--card);
   border: 2px solid var(--line);
   border-radius: var(--radius);
-  padding: 1.1rem;
+  padding: 1.15rem;
   margin-bottom: 1rem;
 }
 
 .card h2, .card h3 { margin-bottom: 0.3rem; }
 
 .card-meta {
-  font-size: 0.88rem;
+  font-size: 0.95rem;       /* never let --ink-soft drop below 16px */
   color: var(--ink-soft);
   margin: 0 0 0.6rem;
 }
@@ -169,7 +212,11 @@ a.card {
   display: block;
   text-decoration: none;
   color: inherit;
+  cursor: pointer;
+  transition: border-color 180ms ease, transform 180ms ease;
 }
+
+a.card:hover { border-color: var(--accent); }
 
 /* --- Buttons ------------------------------------------------------------ */
 
@@ -177,50 +224,56 @@ a.card {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
+  gap: var(--space-sm);
   min-height: var(--tap);
   padding: 0.7rem 1.5rem;
   border: 2px solid var(--accent);
   border-radius: var(--radius);
   background: var(--accent);
-  color: #fff;
-  font-family: var(--sans);
+  color: var(--on-accent);
+  font-family: inherit;
   font-size: 1.02rem;
   font-weight: 700;
   text-decoration: none;
   cursor: pointer;
+  transition: background 180ms ease, border-color 180ms ease;
 }
 
-.btn:hover, .btn:focus-visible { background: var(--accent-dark); border-color: var(--accent-dark); }
+.btn:hover { background: var(--accent-dark); border-color: var(--accent-dark); }
 
-.btn-secondary {
-  background: transparent;
-  color: var(--accent-dark);
+.btn[aria-disabled="true"], .btn:disabled {
+  opacity: 0.65;
+  cursor: progress;
 }
 
-.btn-secondary:hover, .btn-secondary:focus-visible {
-  background: var(--accent);
-  color: #fff;
-}
+.btn-secondary { background: transparent; color: var(--accent-dark); }
+.btn-secondary:hover { background: var(--accent); color: var(--on-accent); }
 
+.btn-compact { min-height: 46px; padding: 0.45rem 1rem; font-size: 0.95rem; }
 .btn-block { width: 100%; }
+
+.btn svg { width: 22px; height: 22px; }
 
 /* --- Forms -------------------------------------------------------------- */
 
-.field { margin-bottom: 1.25rem; }
+.field { margin-bottom: var(--space-md); }
 
-.field label {
-  display: block;
-  font-weight: 700;
-  margin-bottom: 0.35rem;
-}
+.field label { display: block; font-weight: 700; margin-bottom: 0.3rem; }
 
+/* Helper text sits ABOVE the input — after it, people have already typed. */
 .field .hint {
   display: block;
-  font-size: 0.88rem;
+  font-size: 0.95rem;
   font-weight: 400;
   color: var(--ink-soft);
   margin-bottom: 0.45rem;
+}
+
+.field .field-error {
+  display: block;
+  margin-top: 0.4rem;
+  font-weight: 700;
+  color: var(--accent-dark);
 }
 
 input[type="text"], input[type="email"], input[type="password"],
@@ -236,29 +289,30 @@ input[type="tel"], textarea, select {
   font-size: 1.05rem;   /* >=16px stops iOS zooming on focus */
 }
 
+input[aria-invalid="true"] { border-color: var(--accent); }
+
 textarea { min-height: 9rem; resize: vertical; line-height: 1.6; }
 
-:focus-visible {
-  outline: 3px solid var(--teal);
-  outline-offset: 2px;
-}
+:focus-visible { outline: 3px solid var(--teal); outline-offset: 2px; }
 
-/* --- Visibility chips --------------------------------------------------- */
+/* --- Visibility chips (icon + text, never colour alone) ----------------- */
 
 .chip {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  padding: 0.2rem 0.65rem;
+  padding: 0.25rem 0.7rem;
   border-radius: 999px;
-  font-size: 0.82rem;
+  font-size: 0.9rem;
   font-weight: 700;
 }
 
-.chip-private  { background: var(--teal-soft); color: var(--teal); }
-.chip-shared   { background: #eae2f3; color: #533a78; }
-.chip-pending  { background: var(--warn-bg); color: #8a5a10; }
-.chip-public   { background: #e3efdd; color: #33612a; }
+.chip svg { width: 17px; height: 17px; }
+
+.chip-private { background: var(--teal-soft); color: var(--teal); }
+.chip-shared  { background: #e9e3f2; color: #4c3575; }
+.chip-pending { background: var(--warn-bg); color: #7a4a06; }
+.chip-public  { background: #e2eddc; color: #2c5524; }
 
 /* --- Notices ------------------------------------------------------------ */
 
@@ -267,21 +321,22 @@ textarea { min-height: 9rem; resize: vertical; line-height: 1.6; }
   background: var(--warn-bg);
   border-radius: var(--radius);
   padding: 0.9rem 1.05rem;
-  margin-bottom: 1.25rem;
+  margin-bottom: var(--space-md);
 }
 
-.notice-error { border-color: var(--accent); background: #fbeae4; }
+.notice p { margin: 0.35rem 0 0; }
+.notice-error { border-color: var(--accent); background: var(--err-bg); }
 
 /* --- Empty states: never a dead end ------------------------------------- */
 
 .empty {
   text-align: center;
-  padding: 2.5rem 1.25rem;
+  padding: var(--space-xl) 1.25rem;
   border: 2px dashed var(--line);
   border-radius: var(--radius);
 }
 
-.empty p { color: var(--ink-soft); max-width: 26rem; margin: 0 auto 1.35rem; }
+.empty p { color: var(--ink-soft); max-width: 26rem; margin: 0 auto var(--space-md); }
 
 /* --- Back link ---------------------------------------------------------- */
 
@@ -291,33 +346,47 @@ textarea { min-height: 9rem; resize: vertical; line-height: 1.6; }
   gap: 0.4rem;
   min-height: var(--tap);
   color: var(--ink-soft);
-  font-weight: 600;
+  font-weight: 700;
   text-decoration: none;
+  cursor: pointer;
 }
 
 .back:hover { color: var(--accent-dark); }
+.back svg { width: 21px; height: 21px; }
 
 /* --- Transcript tabs (supplementary, never navigation) ------------------ */
 
-.transcripts { margin-top: 1.75rem; border-top: 2px solid var(--line); padding-top: 1rem; }
-.transcripts h3 { font-size: 1.05rem; }
-.transcript-tabs { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.85rem; }
+.transcripts {
+  margin-top: var(--space-lg);
+  border-top: 2px solid var(--line);
+  padding-top: 1rem;
+}
+
+.transcript-tabs { display: flex; flex-wrap: wrap; gap: var(--space-sm); margin-bottom: 0.85rem; }
 
 .transcript-tabs button {
-  min-height: 44px;
-  padding: 0.4rem 1rem;
+  min-height: 46px;
+  padding: 0.4rem 1.1rem;
   border: 2px solid var(--line);
   border-radius: 999px;
   background: var(--card);
   font: inherit;
-  font-size: 0.92rem;
-  font-weight: 600;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--ink);
   cursor: pointer;
+  transition: background 180ms ease, border-color 180ms ease;
 }
 
 .transcript-tabs button[aria-selected="true"] {
-  background: var(--teal); border-color: var(--teal); color: #fff;
+  background: var(--teal);
+  border-color: var(--teal);
+  color: #fff;
 }
+
+/* --- Media -------------------------------------------------------------- */
+
+img { max-width: 100%; height: auto; }
 
 .visually-hidden {
   position: absolute; width: 1px; height: 1px;
@@ -326,5 +395,9 @@ textarea { min-height: 9rem; resize: vertical; line-height: 1.6; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
