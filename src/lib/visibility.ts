@@ -315,18 +315,24 @@ export async function canReadMedia(
     if (isVisibleCover) return row;
   }
 
-  // Unattached media: visible once it appears on an approved souvenir page.
-  const onApprovedPage = await db
-    .prepare(
-      `SELECT 1 FROM flipbook_pages
-        WHERE status = 'approved'
-          AND (then_media_id = ?1 OR now_media_id = ?1)
-        LIMIT 1`,
-    )
-    .bind(mediaId)
-    .first();
+  // A photograph on an approved souvenir page — to signed-in members only.
+  // The souvenir is a book for the batch, not a public gallery: a member who
+  // sent in a photograph of themselves at twenty consented to it being in the
+  // book, which is not the same as consenting to the open internet.
+  if (viewerId) {
+    const onApprovedPage = await db
+      .prepare(
+        `SELECT 1 FROM flipbook_pages
+          WHERE status = 'approved'
+            AND (then_media_id = ?1 OR now_media_id = ?1)
+          LIMIT 1`,
+      )
+      .bind(mediaId)
+      .first();
+    if (onApprovedPage) return row;
+  }
 
-  return onApprovedPage ? row : null;
+  return null;
 }
 
 /**

@@ -93,6 +93,7 @@ function cleanup() {
   sql([
     'PRAGMA foreign_keys = ON;',
     "DELETE FROM posts WHERE author_id LIKE 'vtest_%';",
+    "DELETE FROM flipbook_pages WHERE member_id LIKE 'vtest_%';",
     `DELETE FROM group_members WHERE group_id IN
        (SELECT id FROM groups WHERE id = 'vtest_group' OR name LIKE 'vtest%');`,
     "DELETE FROM groups WHERE id = 'vtest_group' OR name LIKE 'vtest%';",
@@ -180,6 +181,39 @@ async function post(path, cookie, fields = {}) {
   return res.status;
 }
 
+/**
+ * Submit a souvenir page with a photograph and approve it, returning the
+ * media id. Uses the admin's own approval route rather than writing SQL, so
+ * the whole submit-and-approve path is exercised.
+ */
+async function createSouvenirPage(cookie) {
+  const body = new FormData();
+  body.set('heading', 'vtest souvenir');
+  body.set('blurb', 'Fixture created by check-visibility.mjs');
+  body.set('then', new Blob([PIXEL], { type: 'image/png' }), 'then.png');
+  const made = await fetch(`${BASE}/souvenir/mine`, {
+    method: 'POST', headers: { cookie }, body, redirect: 'manual',
+  });
+  if (made.status !== 303) throw new Error(`souvenir submit returned ${made.status}`);
+
+  const mine = await (await fetch(`${BASE}/souvenir/mine`, { headers: { cookie } })).text();
+  const m = mine.match(/\/media\/([a-z0-9]+)/);
+  if (!m) throw new Error('no souvenir photo found');
+
+  // Approve it as the admin so it reaches the "approved page" branch.
+  const queue = await (await fetch(`${BASE}/admin/souvenir`, { headers: { cookie: cookiesRef.admin } })).text();
+  for (const id of new Set([...queue.matchAll(/action="\/admin\/souvenir\/([a-z0-9]+)"/g)].map((x) => x[1]))) {
+    await fetch(`${BASE}/admin/souvenir/${id}`, {
+      method: 'POST', headers: { cookie: cookiesRef.admin },
+      body: new URLSearchParams({ decision: 'approved' }), redirect: 'manual',
+    });
+  }
+  return m[1];
+}
+
+/** Filled in once sessions exist, so the helper above can reach the admin. */
+const cookiesRef = {};
+
 async function share(cookie, postId, kind, audienceId) {
   const body = new URLSearchParams({ kind });
   if (audienceId) body.set('audience_id', audienceId);
@@ -232,6 +266,7 @@ async function main() {
 
   const cookies = {};
   for (const key of Object.keys(PEOPLE)) cookies[key] = await signIn(key);
+  Object.assign(cookiesRef, cookies);
 
   const posts = {
     private: await createPost(cookies.author, {
@@ -366,6 +401,21 @@ async function main() {
   assertReach('the admin who rejected it', await status(`/post/${rejected}`, cookies.admin), false);
   assertReach('its author', await status(`/post/${rejected}`, cookies.author), true);
   posts.rejected = rejected;
+
+  /* -- The souvenir is for the batch, not the open web --------------------- */
+  console.log('\nthe souvenir');
+  assertReach('the flipbook, to a member', await status('/souvenir', cookies.stranger), true);
+  checks++;
+  const anonBook = await status('/souvenir', null);
+  if (anonBook === 303) console.log('  ok    anonymous is sent to sign in (303)');
+  else { failures++; console.error(`  FAIL  /souvenir returned ${anonBook} to a visitor`); }
+
+  // A souvenir photograph is consented to a printed book, not to the internet.
+  const souvenirPhoto = await createSouvenirPage(cookies.author);
+  assertReach('a souvenir photo, to a member',
+    await status(`/media/${souvenirPhoto}`, cookies.friend), true);
+  assertReach('a souvenir photo, anonymous',
+    await status(`/media/${souvenirPhoto}`, null), false);
 
   /* -- Groups: covers, invitations, and an owner taking a post out --------- */
   console.log('\ngroup covers');

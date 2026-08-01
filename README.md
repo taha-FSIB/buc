@@ -16,6 +16,7 @@ follows from that.
 | Hosting | Cloudflare Workers | One deploy target, no servers to patch |
 | Pages | Server-rendered HTML (Hono JSX) | ~15 KB per page. Nothing to hydrate, nothing to wait for |
 | Interactivity | React islands (Preact/compat), 2 of them | Only where it earns its keep — see below |
+| Page turn | `page-flip` (StPageFlip) | ~10 KB, no dependencies, not hand-rolled |
 | Database | Cloudflare D1 (SQLite) | Members, groups, posts, share grants, RSVPs |
 | Files | Cloudflare R2 | Photos, audio, video, PDFs |
 | Auth | Emailed sign-in link, passphrase as fallback | Nothing to remember; no identity provider to explain |
@@ -27,13 +28,17 @@ The site is server-rendered. Two screens use a React island because a plain
 form is genuinely worse there:
 
 - **The souvenir flipbook** (`src/islands/Flipbook.tsx`) — turning 60 pages
-  via full page loads is slow and loses your place.
+  via full page loads is slow and loses your place. The turn itself belongs to
+  `page-flip`; the island only wires it to the server-rendered pages and to a
+  pair of large Previous/Next buttons, because a page turn that answers only to
+  a confident swipe is no use to an unsteady hand.
 - **The share-with-a-friend picker** (`src/islands/MemberPicker.tsx`) — a
   native `<select>` with 60 names is painful on a phone with imprecise touch.
 
-Both are progressive enhancements. The server renders working HTML first (real
-prev/next links, a real `<select>`); the island replaces it once the bundle
-lands. **With JavaScript off, both screens still work.**
+Both are progressive enhancements. The server renders working HTML first (every
+souvenir page, a real `<select>`); the island takes it over once the bundle
+lands. **With JavaScript off, both screens still work.** The whole bundle,
+`page-flip` included, is 24 KB gzipped.
 
 The islands are written as ordinary React and aliased to `preact/compat` at
 build time: same code, ~12 KB gzipped instead of ~45 KB. Swap the alias in
@@ -69,6 +74,59 @@ video. A 100 MB photograph is a mistake or an attack, and either way the
 member should find out in the first second rather than after ten minutes on a
 mobile connection. A file of the wrong kind is rejected **before** it reaches
 R2, so a refused upload never leaves bytes behind.
+
+---
+
+## The reunion souvenir
+
+Every member gets a page: a photo from back then, a photo from now, a name and
+a few words. They can add extra pages too — a longer written piece, which
+flows over as many sheets as it needs, or a single photograph printed large.
+Everything is previewed with the **same component the book itself uses**, so
+what a member approves is what everyone sees. Any edit re-enters moderation.
+
+Admins get progress ("38 of 61 members have sent their page"), a list of who
+still needs a nudge, print-order fields, and one button that produces the PDF.
+
+**The souvenir is members-only.** Sending in a page is consent to appear in a
+book handed round at a reunion — not consent to put your face, your town and
+an account of your life on the open internet. The five public pages in the
+brief do not include this one, and `/souvenir` redirects a visitor to sign in.
+Souvenir photographs are served to signed-in members only.
+
+### The viewer is HTML, not the PDF
+
+The brief asked for a page-turn viewer over the generated PDF. Rendering a PDF
+in a browser means pdf.js: ~350 KB gzipped, rasterising each page on the main
+thread. On a 2015 Android handset over Sri Lankan mobile data that is a long
+stare at nothing, to show content the site already has as HTML.
+
+So the book turns the pages the site already renders — real text, selectable,
+readable by a screen reader, photographs already lazy — using
+[`page-flip`](https://github.com/Nodlik/StPageFlip) (~10 KB gzipped, no
+dependencies) rather than anything hand-rolled. The server renders every page
+into the container and the library is handed those exact elements, so there is
+one copy of the markup. With JavaScript off the whole book reads as one long
+scrolling page.
+
+**The PDF is still the artefact that matters** — it is what goes to the
+printer, and the phone's own viewer opens it perfectly well.
+
+### Known limitation: Tamil and Sinhala do not print
+
+The standard PDF fonts are WinAnsi-encoded. A Tamil or Sinhala blurb — which
+on this site is entirely expected — cannot be drawn, and **used to throw**,
+which would have taken down the whole book on the strength of one page.
+
+It no longer throws. Every string is reduced to what the font can set, every
+draw is wrapped as a backstop, and a page whose words cannot be printed says
+so in English and points at the website. The build is capped at 200 pages and
+survives corrupt photographs and missing R2 objects.
+
+The real fix is embedding a Noto font with `@pdf-lib/fontkit`, which needs a
+TTF; `@fontsource` publishes WOFF/WOFF2 only, so it needs a font file from
+elsewhere or a WOFF→TTF step at build time. **Worth doing before the book goes
+to the printer** if anyone writes their page in Tamil.
 
 ---
 

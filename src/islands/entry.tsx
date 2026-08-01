@@ -1,5 +1,5 @@
 import { render } from 'preact';
-import { Flipbook, type Page } from './Flipbook';
+import { Flipbook } from './Flipbook';
 import { MemberPicker, type Person } from './MemberPicker';
 
 /**
@@ -30,9 +30,16 @@ function mount() {
     const props = propsFor(el);
     switch (el.getAttribute('data-island')) {
       case 'flipbook':
-        if (Array.isArray(props.pages) && props.pages.length) {
-          el.innerHTML = '';
-          render(<Flipbook pages={props.pages as Page[]} start={props.start ?? 0} />, el);
+        // The container's children ARE the book — PageFlip takes them over, so
+        // unlike every other island this one must not clear what it mounts
+        // into. The controls render into a sibling underneath instead.
+        if (Array.isArray(props.titles) && props.titles.length) {
+          const controls = document.createElement('div');
+          el.insertAdjacentElement('afterend', controls);
+          render(
+            <Flipbook container={el} titles={props.titles as string[]} start={props.start ?? 0} />,
+            controls,
+          );
         }
         break;
       case 'member-picker':

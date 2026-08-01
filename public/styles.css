@@ -596,21 +596,60 @@ textarea { min-height: 9rem; resize: vertical; line-height: 1.6; }
 
 .picker-empty { padding: 0.9rem; color: var(--ink-soft); }
 
-/* --- Page turn ---------------------------------------------------------- */
-/* Deliberately a short slide, not a 3D curl: the point is to show which way
-   you moved, not to perform. Suppressed entirely under reduced-motion. */
+/* --- Page turn (StPageFlip) --------------------------------------------- */
+/*
+ * The turn itself belongs to the `page-flip` library. These rules only cover
+ * the two states this project cares about: before it loads, and after.
+ *
+ * PageFlip stamps `stf__parent` on the container when it takes over, which is
+ * what the :not() below keys off. Before that — and forever, with JavaScript
+ * off — the book is simply every page stacked down the screen and readable.
+ */
 
-.flip-turn-next { animation: turn-from-right 240ms ease-out; }
-.flip-turn-prev { animation: turn-from-left 240ms ease-out; }
+.flipbook:not(.stf__parent) .flip-sheet { margin-bottom: var(--space-lg); }
 
-@keyframes turn-from-right {
-  from { opacity: 0; transform: translateX(14px); }
-  to   { opacity: 1; transform: translateX(0); }
+.flipbook.stf__parent { margin: 0 auto var(--space-md); }
+
+/* Once the library owns a sheet it is absolutely positioned and clipped to the
+   page size, so long text needs somewhere to go rather than being cut off. */
+.stf__parent .flip-sheet {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  background: var(--card);
 }
 
-@keyframes turn-from-left {
-  from { opacity: 0; transform: translateX(-14px); }
-  to   { opacity: 1; transform: translateX(0); }
+.stf__parent .flip-page {
+  border: 0;
+  border-radius: 0;
+  margin: 0;
+  min-height: 100%;
+}
+
+.flip-controls { margin-top: var(--space-md); }
+
+/* A photograph given a page of its own. */
+.flip-photo {
+  display: block;
+  width: 100%;
+  max-height: 60vh;
+  object-fit: contain;
+  border-radius: 10px;
+  background: var(--warn-bg);
+  margin-bottom: 0.6rem;
+}
+
+.flip-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  min-height: 12rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The library is told flippingTime: 0 as well; this catches its shadows. */
+  .stf__parent * { transition: none !important; }
+}
 }
 
 /* --- Progress bar (souvenir completion) --------------------------------- */

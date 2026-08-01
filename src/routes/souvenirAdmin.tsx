@@ -151,7 +151,7 @@ souvenirAdminRoutes.post('/admin/souvenir/order', requireAdmin, async (c) => {
 souvenirAdminRoutes.get('/admin/souvenir/pdf', requireAdmin, async (c) => {
   const { results } = await c.env.DB
     .prepare(
-      `SELECT f.id, f.heading, f.blurb,
+      `SELECT f.id, f.page_type, f.heading, f.blurb,
               COALESCE(m.preferred_name, m.full_name) AS member_name,
               t.r2_key AS then_key,
               n.r2_key AS now_key

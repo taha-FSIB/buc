@@ -149,6 +149,13 @@ one well-tested light theme beats two half-tested ones before a 27-day deadline.
   picker. Both progressively enhance server-rendered markup that already
   works, and both ship via `preact/compat` (~12 KB gzipped, not ~45 KB).
   Adding a third island needs a reason written down here.
+- **Take the library, not the reinvention.** The page turn is `page-flip`
+  (~10 KB, no dependencies), not hand-rolled CSS. A third-party animation
+  budget of 10 KB beats a hand-written one of 2 KB that nobody will maintain.
+  The limit that still applies: no library whose job the browser already does
+  — the PDF viewer on the phone is better than pdf.js at 350 KB.
+- **A gesture is never the only way.** Swipe to turn a page, and also a pair of
+  full-width Previous/Next buttons. An unsteady hand cannot swipe reliably.
 - Images lazy-loaded with explicit `width`/`height` to hold CLS < 0.1.
 - Photos from R2 as WebP where possible, always with `alt` text.
 
