@@ -231,6 +231,51 @@ picture you have not looked at is not moderation, and before Phase 2 the
 
 ---
 
+## The Communication Hub
+
+Four fixed channels — General Discussion, Projects & Give-Back, Casual Chat,
+Photos. Anyone can start a thread; anyone can reply. It is the part of the site
+meant to replace the WhatsApp group for anything worth keeping, and the only
+thing here WhatsApp does better is notify you.
+
+**A thread is an ordinary post with a channel on it.** That is the whole trick:
+threads inherit the same read rule, the same media handling and the same
+transcripts as everything else, and `visibility.ts` never had to learn what a
+channel is. A reply has no visibility of its own — it is readable exactly when
+its thread is, so every reply route asks about the *thread* and never about the
+reply.
+
+### A fourth audience
+
+`post_shares` could address one person, one group, or the public. It had no way
+to say "everyone in the batch", so this adds `audience_kind = 'batch'` —
+requiring a table rebuild, since SQLite cannot alter a CHECK in place.
+
+**It is not a back door to the public site.** A batch share reaches signed-in
+members and stops; the public pages still demand their own share row and an
+admin's approval. The harness asserts exactly that: a hub thread is readable by
+every member, 404s for a visitor, and never appears in `/stories`.
+
+Hub threads are kept out of the memories feed and the vault list. A hundred
+one-line replies would bury the memories those pages exist for.
+
+### No polling loop
+
+The brief allowed refresh or polling. This refreshes: writing a reply reloads
+the thread at the newest one, and there is a plain "look for new replies" link
+at the bottom. For an audience that finds a moving screen unsettling, a page
+that only changes when you ask it to is a feature, not a shortcut.
+
+### What the tab bar gave up
+
+Five tabs is a rule, not a target, so the Hub had to displace something. The
+souvenir lost its tab: **sending in your page is a task you do once**, and that
+belongs in a prompt, not in permanent furniture. The home page now carries a
+souvenir card until a member has sent theirs, and the souvenir is one tap away
+under More. Home, Talk, My Vault, Groups, More.
+
+---
+
 ## Groups
 
 A group is the members' own — **no site admin is involved in running one**.
@@ -318,6 +363,7 @@ explicit:
 |---|---|
 | One member | `post_shares(audience_kind='member', audience_id=…)` |
 | A group | `post_shares(audience_kind='group', audience_id=…)` + active membership |
+| The whole batch | `post_shares(audience_kind='batch')` — every signed-in member, and no further |
 | Everyone | `post_shares(audience_kind='public')` **and** `public_submissions.status='approved'` |
 
 Public reach therefore needs **two independent facts**: the member asked for
@@ -466,7 +512,6 @@ will silently put the public pages behind a login. Attach `requireAuth` /
 
 Deliberately left for after 28 August:
 
-- Communication hub (§4.7) — channels and threaded replies
 - Memorial page (§5) — the data model is cheap now, painful to retrofit
 - Give-back board, milestones wall, batch map, archive timeline
 - Machine-generated transcript drafts for members to correct

@@ -751,6 +751,31 @@ textarea { min-height: 9rem; resize: vertical; line-height: 1.6; }
 /* A member row that carries an owner action beside the name. */
 .member-list li form { margin: 0 0 0.6rem; padding-left: calc(56px + 0.9rem); }
 
+/* --- Hub replies -------------------------------------------------------- */
+
+/*
+ * A reply is deliberately quieter than a card: a hundred of them down a page
+ * should read as a conversation, not as a hundred separate announcements.
+ */
+.reply {
+  border-left: 4px solid var(--line);
+  padding: 0.2rem 0 0.2rem 1rem;
+  margin-bottom: var(--space-md);
+}
+
+.reply p { margin: 0.35rem 0; }
+
+.reply-head {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin-bottom: 0.35rem;
+}
+
+.reply-head .card-meta { display: block; margin: 0; font-size: 0.88rem; }
+
+.avatar-small { width: 40px; height: 40px; font-size: 1.05rem; }
+
 .member-head {
   display: flex;
   align-items: center;

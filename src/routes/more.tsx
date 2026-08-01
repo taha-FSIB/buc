@@ -61,9 +61,9 @@ moreRoutes.get('/more', requireAuth, (c) => {
         <h2>My details</h2>
         <p class="card-meta">Your photo, where you are, and how to reach you</p>
       </a>
-      <a class="card" href="/souvenir/mine">
-        <h2>My souvenir page</h2>
-        <p class="card-meta">Your page in the reunion souvenir</p>
+      <a class="card" href="/souvenir">
+        <h2>The reunion souvenir</h2>
+        <p class="card-meta">Read the book, and make your own page</p>
       </a>
       <a class="card" href="/stories">
         <h2>Our public pages</h2>

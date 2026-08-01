@@ -65,6 +65,14 @@ postRoutes.get('/post/:id', async (c) => {
 
   if (!post) return c.notFound();
 
+  // A hub thread is an ordinary post with a channel on it, but it reads as a
+  // conversation rather than a memory. One canonical address for each.
+  const inChannel = await c.env.DB
+    .prepare('SELECT 1 FROM posts WHERE id = ?1 AND channel_id IS NOT NULL')
+    .bind(id)
+    .first();
+  if (inChannel && viewer) return c.redirect(`/talk/thread/${id}`, 303);
+
   const isAuthor = viewer?.id === post.author_id;
   const [{ results: media }, { results: transcripts }] = await Promise.all([
     mediaForPost(c.env.DB, id),

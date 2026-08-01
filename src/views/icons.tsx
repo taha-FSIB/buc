@@ -118,6 +118,12 @@ export const VideoIcon: FC = () => (
   </Svg>
 );
 
+export const TalkIcon: FC = () => (
+  <Svg>
+    <path d="M20.5 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.9A8 8 0 1 1 20.5 12z" />
+  </Svg>
+);
+
 export const CalendarIcon: FC = () => (
   <Svg>
     <rect x="3" y="5" width="18" height="16" rx="2" />

@@ -9,7 +9,12 @@
  *   1. the viewer is the author;
  *   2. the post is posted (not draft) AND shared directly with the viewer;
  *   3. the post is posted AND shared with a group the viewer is active in;
- *   4. the post is posted AND shared publicly AND an admin approved it.
+ *   4. the post is posted AND shared with the whole batch;
+ *   5. the post is posted AND shared publicly AND an admin approved it.
+ *
+ * Rule 4 is the Communication Hub's audience. It reaches every signed-in
+ * member and stops there — it is not a route to the public site, which still
+ * needs its own share row and an admin's approval.
  *
  * Note what is absent: admins get no blanket read access to private vaults.
  * Moderators see a post only once a member has offered it to the public, which
@@ -41,6 +46,17 @@ const READABLE_POST_IDS = `
      AND s.audience_kind = 'group'
      AND g.member_id = ?1
      AND g.state = 'active'
+
+  UNION
+
+  -- The whole batch. Reaching this branch already means a session, and
+  -- resolveSession only returns members whose status is 'active', so
+  -- membership needs no further check here.
+  SELECT p.id
+    FROM posts p
+    JOIN post_shares s ON s.post_id = p.id
+   WHERE p.state = 'posted'
+     AND s.audience_kind = 'batch'
 
   UNION
 
@@ -165,6 +181,9 @@ export function feedForViewer(
          JOIN members m ON m.id = p.author_id
         WHERE p.id IN (${READABLE_POST_IDS})
           AND p.state = 'posted'
+          -- Hub conversation lives in the hub. Mixing a hundred one-line
+          -- replies into a feed of memories would bury the memories.
+          AND p.channel_id IS NULL
         ORDER BY p.created_at DESC
         LIMIT ?2 OFFSET ?3`,
     )
@@ -180,6 +199,7 @@ export function vaultForMember(db: D1Database, memberId: string, limit = 50) {
          FROM posts p
          JOIN members m ON m.id = p.author_id
         WHERE p.author_id = ?1 AND p.state != 'archived'
+          AND p.channel_id IS NULL
         ORDER BY p.updated_at DESC
         LIMIT ?2`,
     )
@@ -212,6 +232,49 @@ export function feedForGroup(
     )
     .bind(viewerId, groupId, limit)
     .all<PostRow>();
+}
+
+export interface ThreadRow extends PostRow {
+  reply_count: number;
+  last_at: number;
+  last_by: string | null;
+}
+
+/**
+ * The threads in one channel, most recently spoken-in first.
+ *
+ * Still gated on READABLE_POST_IDS rather than on channel membership: a thread
+ * is readable because it was shared with the batch, not because of where it
+ * sits. If a share were ever withdrawn the thread would vanish from here
+ * without this function needing to know why.
+ */
+export function feedForChannel(
+  db: D1Database,
+  viewerId: string,
+  channelId: string,
+  limit = 50,
+) {
+  return db
+    .prepare(
+      `SELECT ${POST_COLUMNS},
+              (SELECT COUNT(*) FROM channel_replies r WHERE r.post_id = p.id) AS reply_count,
+              COALESCE(
+                (SELECT MAX(r.created_at) FROM channel_replies r WHERE r.post_id = p.id),
+                p.created_at
+              ) AS last_at,
+              (SELECT COALESCE(rm.preferred_name, rm.full_name)
+                 FROM channel_replies r JOIN members rm ON rm.id = r.author_id
+                WHERE r.post_id = p.id ORDER BY r.created_at DESC LIMIT 1) AS last_by
+         FROM posts p
+         JOIN members m ON m.id = p.author_id
+        WHERE p.id IN (${READABLE_POST_IDS})
+          AND p.state = 'posted'
+          AND p.channel_id = ?2
+        ORDER BY last_at DESC
+        LIMIT ?3`,
+    )
+    .bind(viewerId, channelId, limit)
+    .all<ThreadRow>();
 }
 
 /** The public site's feed. No viewer, no session, approved content only. */

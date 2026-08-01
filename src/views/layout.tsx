@@ -2,14 +2,14 @@ import type { FC, PropsWithChildren } from 'hono/jsx';
 import type { Viewer } from '../lib/auth';
 import {
   HomeIcon, VaultIcon, GroupsIcon, SouvenirIcon, MoreIcon, BackIcon, LockIcon,
-  PenIcon, CalendarIcon, MailIcon,
+  PenIcon, CalendarIcon, MailIcon, TalkIcon,
 } from './icons';
 
 interface LayoutProps {
   title: string;
   viewer: Viewer | null;
   /** Which bottom tab to highlight. */
-  tab?: 'home' | 'vault' | 'groups' | 'book' | 'more';
+  tab?: 'home' | 'talk' | 'vault' | 'groups' | 'book' | 'more';
   /**
    * Which public tab to highlight. Set on the five pages a visitor can reach
    * without signing in; ignored once somebody is signed in, because then the
@@ -22,12 +22,19 @@ interface LayoutProps {
   description?: string;
 }
 
+/*
+ * Five, still. The Hub earned a place because it is the thing members will
+ * open every day, and the souvenir gave one up because sending in your page is
+ * a task you do once — that belongs in a prompt on the home page, not in a
+ * permanent tab. The souvenir is one tap away under More, and stays linked
+ * from Home until a member has sent their page in.
+ */
 const TABS = [
-  { key: 'home',   href: '/',         Icon: HomeIcon,     label: 'Home' },
-  { key: 'vault',  href: '/vault',    Icon: VaultIcon,    label: 'My Vault' },
-  { key: 'groups', href: '/groups',   Icon: GroupsIcon,   label: 'Groups' },
-  { key: 'book',   href: '/souvenir', Icon: SouvenirIcon, label: 'Souvenir' },
-  { key: 'more',   href: '/more',     Icon: MoreIcon,     label: 'More' },
+  { key: 'home',   href: '/',       Icon: HomeIcon,   label: 'Home' },
+  { key: 'talk',   href: '/talk',   Icon: TalkIcon,   label: 'Talk' },
+  { key: 'vault',  href: '/vault',  Icon: VaultIcon,  label: 'My Vault' },
+  { key: 'groups', href: '/groups', Icon: GroupsIcon, label: 'Groups' },
+  { key: 'more',   href: '/more',   Icon: MoreIcon,   label: 'More' },
 ] as const;
 
 /** The same five-item ceiling as the member bar, for the same reason. */

@@ -11,6 +11,7 @@ import { vaultRoutes } from './routes/vault';
 import { postRoutes } from './routes/posts';
 import { groupRoutes } from './routes/groups';
 import { souvenirRoutes } from './routes/souvenir';
+import { hubRoutes } from './routes/hub';
 import { adminRoutes } from './routes/admin';
 import { publicRoutes, publicHome } from './routes/publicSite';
 import { moreRoutes } from './routes/more';
@@ -41,7 +42,16 @@ app.get('/', async (c) => {
   const viewer = c.get('viewer');
   if (!viewer) return publicHome(c);
 
-  const { results } = await feedForViewer(c.env.DB, viewer.id);
+  const [{ results }, souvenir] = await Promise.all([
+    feedForViewer(c.env.DB, viewer.id),
+    c.env.DB
+      .prepare(
+        `SELECT status FROM flipbook_pages
+          WHERE member_id = ?1 AND page_type = 'member'`,
+      )
+      .bind(viewer.id)
+      .first<{ status: string }>(),
+  ]);
   const mine = results.filter((p) => p.author_id === viewer.id).length;
 
   return c.html(
@@ -56,6 +66,19 @@ app.get('/', async (c) => {
         <h2>Our reunion · 28-29 August</h2>
         <p class="card-meta">Eastern University · tell us if you are coming</p>
       </a>
+
+      {/* The souvenir gave up its tab because sending in a page is a task you
+          do once. This is where the reminder lives instead, and it disappears
+          the moment they have done it. */}
+      {!souvenir && (
+        <a class="card" href="/souvenir/mine">
+          <h2>Your page in the souvenir</h2>
+          <p class="card-meta">
+            Every member gets one — a photo from back then, one from now, and a
+            few words. Yours is not in yet.
+          </p>
+        </a>
+      )}
 
       <a class="btn btn-block" href="/vault/new">
         <PlusIcon />
@@ -101,6 +124,7 @@ app.route('/', vaultRoutes);
 app.route('/', postRoutes);
 app.route('/', groupRoutes);
 app.route('/', souvenirRoutes);
+app.route('/', hubRoutes);
 app.route('/', reunionRoutes);
 // Mounted before adminRoutes so /admin/souvenir/compile wins over /admin/souvenir/:pageId.
 app.route('/', souvenirAdminRoutes);

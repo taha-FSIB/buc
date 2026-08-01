@@ -402,6 +402,52 @@ async function main() {
   assertReach('its author', await status(`/post/${rejected}`, cookies.author), true);
   posts.rejected = rejected;
 
+  /* -- The hub's audience: every member, and no further -------------------- */
+  console.log('\na hub thread (shared with the whole batch)');
+  const thread = new FormData();
+  thread.set('title', 'vtest hub thread');
+  thread.set('body', 'Fixture created by check-visibility.mjs');
+  const made = await fetch(`${BASE}/talk/general/new`, {
+    method: 'POST', headers: { cookie: cookies.author }, body: thread, redirect: 'manual',
+  });
+  if (made.status !== 303) throw new Error(`starting a thread returned ${made.status}`);
+  const threadId = new URL(made.headers.get('location'), BASE).pathname.split('/')[3];
+
+  for (const v of VIEWERS) {
+    assertReach(`${v.padEnd(9)}`, await status(`/talk/thread/${threadId}`, cookies[v]), true);
+  }
+  checks++;
+  const anonThread = await status(`/talk/thread/${threadId}`, null);
+  if (anonThread === 303) console.log('  ok    anonymous is sent to sign in (303)');
+  else { failures++; console.error(`  FAIL  a hub thread returned ${anonThread} to a visitor`); }
+
+  // 'batch' is not a back door to 'public'. It must not reach the public site.
+  assertReach('not on the public site', await status(`/stories/${threadId}`, null), false);
+  checks++;
+  const stories = await (await fetch(`${BASE}/stories`)).text();
+  if (stories.includes(threadId)) {
+    failures++; console.error('  FAIL  a hub thread leaked into /stories');
+  } else console.log('  ok    absent from the public listing');
+
+  // A reply is readable exactly when its thread is — so posting one must be
+  // gated on the thread, not on the reply.
+  checks++;
+  const replied = await post(`/talk/thread/${threadId}/reply`, cookies.stranger, { body: 'vtest reply' });
+  if (replied === 303) console.log('  ok    any member may reply (303)');
+  else { failures++; console.error(`  FAIL  a member replying got ${replied}`); }
+
+  checks++;
+  const anonReply = await fetch(`${BASE}/talk/thread/${threadId}/reply`, {
+    method: 'POST', body: new URLSearchParams({ body: 'vtest anonymous' }), redirect: 'manual',
+  });
+  if (anonReply.status === 303 && (anonReply.headers.get('location') ?? '').includes('/welcome')) {
+    console.log('  ok    a visitor cannot reply (sent to sign in)');
+  } else {
+    failures++; console.error(`  FAIL  a visitor replying got ${anonReply.status}`);
+  }
+
+  posts.hubThread = threadId;
+
   /* -- The souvenir is for the batch, not the open web --------------------- */
   console.log('\nthe souvenir');
   assertReach('the flipbook, to a member', await status('/souvenir', cookies.stranger), true);
