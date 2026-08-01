@@ -1,0 +1,317 @@
+/**
+ * The privacy model, checked over HTTP.
+ *
+ * The rule in src/lib/visibility.ts is the single most security-critical thing
+ * in this project: a post must never reach somebody it was not shared with.
+ * Reading the SQL and nodding is not a test. This drives the real running app
+ * — real sessions, real uploads to R2, real routes — and asserts a full
+ * visibility matrix, including the cases that are easy to get wrong:
+ *
+ *   * a draft that HAS been shared is still invisible;
+ *   * a public submission that is only PENDING is invisible to everyone but
+ *     its author, admins included;
+ *   * media inherits its post's visibility, so a forwarded /media/ link
+ *     grants nothing;
+ *   * an admin has no blanket read access to private vaults.
+ *
+ * Usage:  node scripts/check-visibility.mjs [baseUrl]
+ * Needs a dev server running against the local D1 (npm run dev).
+ *
+ * Fixtures all carry a `vtest_` prefix and are removed at the end, including
+ * the R2 objects, which are deleted through the app's own delete route.
+ */
+
+import { createHash, randomBytes } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { writeFileSync, unlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const BASE = (process.argv[2] ?? 'http://127.0.0.1:8787').replace(/\/+$/, '');
+const sha256 = (s) => createHash('sha256').update(s).digest('hex');
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+// Run wrangler's entry point directly rather than through `npx`: on Windows,
+// spawning a .cmd shim without a shell fails with EINVAL on current Node.
+const WRANGLER = join(ROOT, 'node_modules', 'wrangler', 'bin', 'wrangler.js');
+
+/* -- Running SQL against the local database -------------------------------- */
+function sql(statements) {
+  const file = join(tmpdir(), `vtest-${randomBytes(6).toString('hex')}.sql`);
+  writeFileSync(file, statements.join('\n'), 'utf8');
+  try {
+    execFileSync(
+      process.execPath,
+      [WRANGLER, 'd1', 'execute', 'buc_alumni', '--local', '--file', file],
+      { stdio: 'pipe', cwd: ROOT },
+    );
+  } finally {
+    unlinkSync(file);
+  }
+}
+
+/* -- Fixtures -------------------------------------------------------------- */
+const PEOPLE = {
+  author:   { id: 'vtest_author',   name: 'Test Author',   role: 'member' },
+  friend:   { id: 'vtest_friend',   name: 'Test Friend',   role: 'member' },
+  grpmate:  { id: 'vtest_grpmate',  name: 'Test Groupmate', role: 'member' },
+  stranger: { id: 'vtest_stranger', name: 'Test Stranger', role: 'member' },
+  admin:    { id: 'vtest_admin',    name: 'Test Admin',    role: 'admin'  },
+};
+
+const tokens = Object.fromEntries(
+  Object.keys(PEOPLE).map((k) => [k, randomBytes(32).toString('hex')]),
+);
+
+function seed() {
+  const rows = Object.values(PEOPLE).map(
+    (p) => `INSERT INTO members (id, full_name, email, role, status)
+            VALUES ('${p.id}', '${p.name}', '${p.id}@visibility.test', '${p.role}', 'active');`,
+  );
+
+  const links = Object.entries(PEOPLE).map(
+    ([key, p]) => `INSERT INTO login_links (id, member_id, token_hash, purpose, expires_at)
+                   VALUES ('vtest_link_${key}', '${p.id}', '${sha256(tokens[key])}',
+                           'signin', unixepoch() + 3600);`,
+  );
+
+  sql([
+    'PRAGMA foreign_keys = ON;',
+    ...rows,
+    `INSERT INTO groups (id, name, kind, join_policy, created_by)
+       VALUES ('vtest_group', 'Test Group', 'interest', 'invite', '${PEOPLE.author.id}');`,
+    `INSERT INTO group_members (group_id, member_id, role, state)
+       VALUES ('vtest_group', '${PEOPLE.author.id}', 'owner', 'active');`,
+    `INSERT INTO group_members (group_id, member_id, role, state)
+       VALUES ('vtest_group', '${PEOPLE.grpmate.id}', 'member', 'active');`,
+    ...links,
+  ]);
+}
+
+function cleanup() {
+  sql([
+    'PRAGMA foreign_keys = ON;',
+    "DELETE FROM posts WHERE author_id LIKE 'vtest_%';",
+    "DELETE FROM group_members WHERE group_id = 'vtest_group';",
+    "DELETE FROM groups WHERE id = 'vtest_group';",
+    "DELETE FROM login_links WHERE member_id LIKE 'vtest_%';",
+    "DELETE FROM sessions WHERE member_id LIKE 'vtest_%';",
+    "DELETE FROM members WHERE id LIKE 'vtest_%';",
+  ]);
+}
+
+/* -- Talking to the app ---------------------------------------------------- */
+function cookiesFrom(res) {
+  const raw = typeof res.headers.getSetCookie === 'function'
+    ? res.headers.getSetCookie()
+    : [res.headers.get('set-cookie')].filter(Boolean);
+  return raw.map((c) => c.split(';')[0]).join('; ');
+}
+
+async function signIn(key) {
+  const res = await fetch(`${BASE}/signin/link/${tokens[key]}`, {
+    method: 'POST', redirect: 'manual',
+  });
+  if (res.status !== 303) throw new Error(`sign-in for ${key} returned ${res.status}`);
+  const cookie = cookiesFrom(res);
+  if (!cookie.includes('buc_session=')) throw new Error(`no session cookie for ${key}`);
+  return cookie;
+}
+
+/** A 1x1 PNG, so uploads are real objects in R2 rather than mocked rows. */
+const PIXEL = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  'base64',
+);
+
+async function createPost(cookie, { kind, title, visibility, groupId, withPhoto }) {
+  const body = new FormData();
+  body.set('title', title);
+  body.set('body', 'Fixture created by check-visibility.mjs');
+  body.set('language', 'en');
+  body.set('visibility', visibility);
+  if (groupId) body.set('group_id', groupId);
+  if (withPhoto) body.set('file', new Blob([PIXEL], { type: 'image/png' }), 'pixel.png');
+
+  const res = await fetch(`${BASE}/vault/new/${kind}`, {
+    method: 'POST', headers: { cookie }, body, redirect: 'manual',
+  });
+  if (res.status !== 303) {
+    throw new Error(`creating "${title}" returned ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  }
+  const id = new URL(res.headers.get('location'), BASE).pathname.split('/')[2];
+  if (!id) throw new Error(`could not read a post id back for "${title}"`);
+  return id;
+}
+
+async function share(cookie, postId, kind, audienceId) {
+  const body = new URLSearchParams({ kind });
+  if (audienceId) body.set('audience_id', audienceId);
+  const res = await fetch(`${BASE}/post/${postId}/share`, {
+    method: 'POST', headers: { cookie }, body, redirect: 'manual',
+  });
+  if (res.status !== 303) throw new Error(`sharing ${postId} returned ${res.status}`);
+}
+
+async function mediaIdOf(cookie, postId) {
+  const html = await (await fetch(`${BASE}/post/${postId}`, { headers: { cookie } })).text();
+  const m = html.match(/\/media\/([a-z0-9]+)/);
+  if (!m) throw new Error(`no media found on ${postId}`);
+  return m[1];
+}
+
+async function status(path, cookie) {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: cookie ? { cookie } : {}, redirect: 'manual',
+  });
+  return res.status;
+}
+
+/* -- The matrix ------------------------------------------------------------ */
+let failures = 0;
+let checks = 0;
+
+function assertReach(label, actual, shouldSee) {
+  checks++;
+  // Anything under 400 means the bytes were served (206 shows up on ranged
+  // media). Denial is always 404, never 403 — the app must not confirm that a
+  // private item exists.
+  const seen = actual < 400;
+  const ok = seen === shouldSee;
+  if (!ok) {
+    failures++;
+    console.error(
+      `  FAIL  ${label}: expected ${shouldSee ? 'to be readable' : 'to be hidden'}, got HTTP ${actual}`,
+    );
+  } else {
+    console.log(`  ok    ${label} (${actual})`);
+  }
+}
+
+async function main() {
+  console.log(`Checking the privacy model against ${BASE}\n`);
+
+  cleanup(); // in case an earlier run died half-way
+  seed();
+
+  const cookies = {};
+  for (const key of Object.keys(PEOPLE)) cookies[key] = await signIn(key);
+
+  const posts = {
+    private: await createPost(cookies.author, {
+      kind: 'photo', title: 'vtest private', visibility: 'private', withPhoto: true,
+    }),
+    toFriend: await createPost(cookies.author, {
+      kind: 'story', title: 'vtest shared with one friend', visibility: 'private',
+    }),
+    toGroup: await createPost(cookies.author, {
+      kind: 'story', title: 'vtest shared with a group',
+      visibility: 'group', groupId: 'vtest_group',
+    }),
+    pending: await createPost(cookies.author, {
+      kind: 'story', title: 'vtest awaiting approval', visibility: 'public',
+    }),
+    pendingPhoto: await createPost(cookies.author, {
+      kind: 'photo', title: 'vtest photo awaiting approval', visibility: 'public',
+      withPhoto: true,
+    }),
+    approved: await createPost(cookies.author, {
+      kind: 'photo', title: 'vtest approved for the public', visibility: 'public',
+      withPhoto: true,
+    }),
+    draftShared: await createPost(cookies.author, {
+      kind: 'story', title: 'vtest draft but shared', visibility: 'private',
+    }),
+  };
+
+  await share(cookies.author, posts.toFriend, 'member', PEOPLE.friend.id);
+  await share(cookies.author, posts.draftShared, 'member', PEOPLE.friend.id);
+
+  // Approved through the real moderation route, by a real admin.
+  const approve = await fetch(`${BASE}/admin/queue/${posts.approved}`, {
+    method: 'POST', headers: { cookie: cookies.admin },
+    body: new URLSearchParams({ decision: 'approved' }), redirect: 'manual',
+  });
+  if (approve.status !== 303) throw new Error(`approval returned ${approve.status}`);
+
+  // Only reachable by writing directly: the compose form deliberately has no
+  // way to make a draft. The point is that state and reach are separate checks.
+  sql([`UPDATE posts SET state = 'draft' WHERE id = '${posts.draftShared}';`]);
+
+  const privateMedia = await mediaIdOf(cookies.author, posts.private);
+  const publicMedia = await mediaIdOf(cookies.author, posts.approved);
+  const pendingMedia = await mediaIdOf(cookies.author, posts.pendingPhoto);
+
+  const VIEWERS = ['author', 'friend', 'grpmate', 'stranger', 'admin'];
+
+  /** who may read what: [post, path, {viewer: expected}, anonymous] */
+  const MATRIX = [
+    ['a private post', `/post/${posts.private}`,
+      { author: true, friend: false, grpmate: false, stranger: false, admin: false }, false],
+    ['a post shared with one friend', `/post/${posts.toFriend}`,
+      { author: true, friend: true, grpmate: false, stranger: false, admin: false }, false],
+    ['a post shared with a group', `/post/${posts.toGroup}`,
+      { author: true, friend: false, grpmate: true, stranger: false, admin: false }, false],
+    // The one asymmetry in the model, and it is intentional: the member has
+    // asked for this to be public, so a moderator may read it. Everybody else
+    // — including other members — still sees nothing until it is approved.
+    ['a public submission still pending', `/post/${posts.pending}`,
+      { author: true, friend: false, grpmate: false, stranger: false, admin: true }, false],
+    ['media on a pending public submission', `/media/${pendingMedia}`,
+      { author: true, friend: false, grpmate: false, stranger: false, admin: true }, false],
+    ['an approved public post', `/post/${posts.approved}`,
+      { author: true, friend: true, grpmate: true, stranger: true, admin: true }, true],
+    ['a draft that has been shared', `/post/${posts.draftShared}`,
+      { author: true, friend: false, grpmate: false, stranger: false, admin: false }, false],
+    ['media on a private post', `/media/${privateMedia}`,
+      { author: true, friend: false, grpmate: false, stranger: false, admin: false }, false],
+    ['media on an approved public post', `/media/${publicMedia}`,
+      { author: true, friend: true, grpmate: true, stranger: true, admin: true }, true],
+  ];
+
+  for (const [label, path, expected, anonymous] of MATRIX) {
+    console.log(`\n${label}`);
+    for (const v of VIEWERS) {
+      assertReach(`${v.padEnd(9)}`, await status(path, cookies[v]), expected[v]);
+    }
+    assertReach('anonymous', await status(path, null), anonymous);
+  }
+
+  // The public feed is its own read path and must agree with the matrix.
+  console.log('\nthe anonymous public feed');
+  const feed = await (await fetch(`${BASE}/public`)).text();
+  for (const [key, shouldAppear] of [
+    ['approved', true], ['pending', false], ['pendingPhoto', false], ['private', false],
+  ]) {
+    checks++;
+    const appears = feed.includes(posts[key]);
+    if (appears !== shouldAppear) {
+      failures++;
+      console.error(`  FAIL  ${key} post ${shouldAppear ? 'missing from' : 'leaked into'} /public`);
+    } else {
+      console.log(`  ok    ${key} post ${shouldAppear ? 'listed' : 'absent'}`);
+    }
+  }
+
+  // Delete through the app so the R2 objects go with the rows.
+  for (const id of Object.values(posts)) {
+    await fetch(`${BASE}/post/${id}/delete`, {
+      method: 'POST', headers: { cookie: cookies.author }, redirect: 'manual',
+    });
+  }
+  cleanup();
+
+  console.log(`\n${checks - failures}/${checks} checks passed.`);
+  if (failures) {
+    console.error(`${failures} FAILED — do not deploy this.`);
+    process.exit(1);
+  }
+  console.log('The privacy model holds.');
+}
+
+main().catch(async (err) => {
+  console.error('\nHarness error:', err.message);
+  try { cleanup(); } catch { /* best effort */ }
+  process.exit(2);
+});

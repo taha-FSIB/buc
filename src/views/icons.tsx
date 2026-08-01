@@ -85,3 +85,52 @@ export const LockIcon: FC = () => (
     <path d="M8 10.5V7a4 4 0 0 1 8 0v3.5" />
   </Svg>
 );
+
+/* -- What kind of thing am I adding? --------------------------------------- */
+
+export const PenIcon: FC = () => (
+  <Svg>
+    <path d="M4 20h4l10.5-10.5a2.5 2.5 0 0 0-3.5-3.5L4.5 16.5z" />
+    <path d="M14.5 6.5 17.5 9.5" />
+  </Svg>
+);
+
+export const PhotoIcon: FC = () => (
+  <Svg>
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+    <circle cx="8.5" cy="10" r="1.75" />
+    <path d="m4 17 5-5 4.5 4.5L16 14l4 4" />
+  </Svg>
+);
+
+export const MicIcon: FC = () => (
+  <Svg>
+    <rect x="9" y="3" width="6" height="11" rx="3" />
+    <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0" />
+    <path d="M12 18v3" />
+  </Svg>
+);
+
+export const VideoIcon: FC = () => (
+  <Svg>
+    <rect x="3" y="6" width="12" height="12" rx="2" />
+    <path d="m15 10.5 6-3.5v10l-6-3.5z" />
+  </Svg>
+);
+
+/* -- Who can see it? ------------------------------------------------------- */
+
+export const PersonIcon: FC = () => (
+  <Svg>
+    <circle cx="12" cy="8" r="3.5" />
+    <path d="M5 20a7 7 0 0 1 14 0" />
+  </Svg>
+);
+
+export const GlobeIcon: FC = () => (
+  <Svg>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M3 12h18" />
+    <path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18" />
+  </Svg>
+);

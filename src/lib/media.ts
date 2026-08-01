@@ -29,8 +29,35 @@ const ALLOWED: Record<string, { kind: 'photo' | 'audio' | 'video' | 'pdf'; ext: 
   'application/pdf': { kind: 'pdf',   ext: 'pdf'  },
 };
 
-/** 100 MB. Generous enough for a phone video, small enough to survive a slow uplink. */
-export const MAX_BYTES = 100 * 1024 * 1024;
+/**
+ * What kind of thing a browser says this file is, or null if we will not take
+ * it. Exported so a caller can reject a file BEFORE it reaches R2 — otherwise
+ * a rejected upload leaves bytes behind that nothing will ever clean up.
+ */
+export function kindOf(mimeType: string): 'photo' | 'audio' | 'video' | 'pdf' | null {
+  return ALLOWED[mimeType]?.kind ?? null;
+}
+
+/**
+ * Size ceilings, per kind rather than one blanket number.
+ *
+ * A 100 MB photograph is never a real photograph — it is a mistake or an
+ * attack, and either way the member finds out in the first second instead of
+ * after ten minutes of uploading over a Sri Lankan mobile connection. Video
+ * keeps the generous ceiling because a two-minute clip from a phone genuinely
+ * reaches that size.
+ */
+export const MAX_BYTES_BY_KIND: Record<'photo' | 'audio' | 'video' | 'pdf', number> = {
+  photo: 25 * 1024 * 1024,
+  audio: 50 * 1024 * 1024,
+  video: 100 * 1024 * 1024,
+  pdf: 25 * 1024 * 1024,
+};
+
+/** The largest anything may be. Used for the copy on the compose form. */
+export const MAX_BYTES = MAX_BYTES_BY_KIND.video;
+
+const MB = (bytes: number) => Math.round(bytes / 1024 / 1024);
 
 export interface StoredMedia {
   id: string;
@@ -56,8 +83,11 @@ export async function storeUpload(
       'That kind of file cannot be added yet. Photos, audio, video and PDFs work.',
     );
   }
-  if (file.size > MAX_BYTES) {
-    throw new UploadError('That file is larger than 100 MB. Please try a smaller one.');
+  const ceiling = MAX_BYTES_BY_KIND[spec.kind];
+  if (file.size > ceiling) {
+    throw new UploadError(
+      `That file is ${MB(file.size)} MB. The most we can take here is ${MB(ceiling)} MB.`,
+    );
   }
   if (file.size === 0) {
     throw new UploadError('That file appears to be empty.');

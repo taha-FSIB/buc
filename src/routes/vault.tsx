@@ -1,10 +1,14 @@
 import { Hono } from 'hono';
+import type { FC } from 'hono/jsx';
 import type { AppBindings } from '../types';
 import { Layout, VisibilityChip, ErrorNotice } from '../views/layout';
-import { PlusIcon } from '../views/icons';
+import {
+  PlusIcon, PenIcon, PhotoIcon, MicIcon, VideoIcon,
+  LockIcon, PersonIcon, GroupsIcon, GlobeIcon,
+} from '../views/icons';
 import { requireAuth, viewerOf } from '../lib/guard';
-import { vaultForMember } from '../lib/visibility';
-import { storeUpload, UploadError, MAX_BYTES } from '../lib/media';
+import { vaultForMember, submitForPublic } from '../lib/visibility';
+import { storeUpload, kindOf, UploadError, MAX_BYTES_BY_KIND } from '../lib/media';
 import { newId } from '../lib/ids';
 
 // requireAuth is attached per route, never via use('*'): these routers are all
@@ -17,6 +21,82 @@ const LANGUAGES = [
   { code: 'ta', label: 'Tamil' },
   { code: 'si', label: 'Sinhala' },
 ] as const;
+
+/**
+ * What a member can add, and what each choice changes.
+ *
+ * Asking first — rather than showing one form with a file box that accepts
+ * anything — means the phone opens the right thing when they tap: the camera
+ * roll for a photograph, the voice recorder for a recording. It also means the
+ * medium is recorded because the member said so, not because we guessed from
+ * a MIME type.
+ */
+const KINDS = {
+  story: {
+    medium: 'text' as const,
+    noun: 'a written memory',
+    Icon: PenIcon,
+    title: 'Write a memory',
+    blurb: 'Just words. As long or as short as you like.',
+    heading: 'Write a memory',
+    accept: null,
+    bodyLabel: 'Your memory',
+    bodyHint: 'Take your time. There is no length limit.',
+    fileLabel: null,
+  },
+  photo: {
+    medium: 'photo' as const,
+    noun: 'a photograph',
+    Icon: PhotoIcon,
+    title: 'Add a photograph',
+    blurb: 'An old picture, or one from last week.',
+    heading: 'Add a photograph',
+    accept: 'image/*',
+    bodyLabel: 'Anything you want to say about it',
+    bodyHint: 'Optional. Who is in it, where it was taken, what you remember.',
+    fileLabel: 'Choose the photograph',
+  },
+  audio: {
+    medium: 'audio' as const,
+    noun: 'a recording',
+    Icon: MicIcon,
+    title: 'Add a recording',
+    blurb: 'Your own voice telling the story.',
+    heading: 'Add a recording',
+    accept: 'audio/*',
+    bodyLabel: 'Anything you want to add in writing',
+    bodyHint: 'Optional.',
+    fileLabel: 'Choose the recording',
+  },
+  video: {
+    medium: 'video' as const,
+    noun: 'a video',
+    Icon: VideoIcon,
+    title: 'Add a video',
+    blurb: 'A clip from your phone.',
+    heading: 'Add a video',
+    accept: 'video/*',
+    bodyLabel: 'Anything you want to add in writing',
+    bodyHint: 'Optional.',
+    fileLabel: 'Choose the video',
+  },
+} as const;
+
+type KindKey = keyof typeof KINDS;
+
+function isKind(v: string): v is KindKey {
+  return Object.prototype.hasOwnProperty.call(KINDS, v);
+}
+
+const MB = (bytes: number) => Math.round(bytes / 1024 / 1024);
+
+/** What we call a file we were not expecting, when telling the member so. */
+const MEDIA_NOUN: Record<'photo' | 'audio' | 'video' | 'pdf', string> = {
+  photo: 'a photograph',
+  audio: 'a recording',
+  video: 'a video',
+  pdf: 'a document',
+};
 
 /* -- Vault list ------------------------------------------------------------ */
 vaultRoutes.get('/vault', requireAuth, async (c) => {
@@ -76,14 +156,19 @@ vaultRoutes.get('/vault', requireAuth, async (c) => {
         </div>
       ) : (
         <div style="margin-top:2rem">
+          {/* A card, not a link wrapping everything: changing who can see a
+              post is a first-class action, so it needs its own target. */}
           {results.map((p) => (
-            <a class="card" href={`/post/${p.id}`}>
-              <h2>{p.title || 'Untitled'}</h2>
+            <div class="card">
+              <h2><a href={`/post/${p.id}`}>{p.title || 'Untitled'}</a></h2>
               <p class="card-meta">
                 <VisibilityChip kind={reach.get(p.id) ?? 'private'} />
                 {p.state === 'draft' && ' · Not posted yet'}
               </p>
-            </a>
+              <p style="margin:0.6rem 0 0">
+                <a class="back" href={`/post/${p.id}/share`}>Change who can see this</a>
+              </p>
+            </div>
           ))}
         </div>
       )}
@@ -91,100 +176,253 @@ vaultRoutes.get('/vault', requireAuth, async (c) => {
   );
 });
 
-/* -- Compose --------------------------------------------------------------- */
-const ComposeForm = (props: {
-  viewer: ReturnType<typeof viewerOf>;
-  error?: string;
-  values?: { title?: string; body?: string; language?: string };
-}) => (
-  <Layout title="Add to your vault" viewer={props.viewer} tab="vault"
-          back={{ href: '/vault', label: 'My Vault' }}>
-    <h1>Add something</h1>
-    <p class="page-intro">
-      Write a memory, or add a photo, a recording, or a video. Nobody else can
-      see this until you share it.
-    </p>
-
-    {props.error && <ErrorNotice title="We could not save that."><p>{props.error}</p></ErrorNotice>}
-
-    <form method="post" action="/vault/new" enctype="multipart/form-data">
-      <div class="field">
-        <label for="title">Give it a name</label>
-        <span class="hint">For example: Our first day at BUC</span>
-        <input id="title" name="title" type="text" maxlength={140}
-               value={props.values?.title ?? ''} required />
-      </div>
-
-      <div class="field">
-        <label for="body">Tell the story</label>
-        <span class="hint">As long or as short as you like. You can leave this empty if you are adding a photo.</span>
-        <textarea id="body" name="body">{props.values?.body ?? ''}</textarea>
-      </div>
-
-      <div class="field">
-        <label for="file">Add a photo, recording, or video</label>
-        <span class="hint">Optional. Up to {Math.round(MAX_BYTES / 1024 / 1024)} MB.</span>
-        <input id="file" name="file" type="file"
-               accept="image/*,audio/*,video/*,application/pdf" />
-      </div>
-
-      <div class="field">
-        <label for="alt">Describe the photo in a few words</label>
-        <span class="hint">
-          Optional. This helps friends who cannot see the picture clearly.
-        </span>
-        <input id="alt" name="alt" type="text" maxlength={200} />
-      </div>
-
-      <div class="field">
-        <label for="language">What language did you write in?</label>
-        <span class="hint">
-          We use this to offer translations underneath your story later.
-        </span>
-        <select id="language" name="language">
-          {LANGUAGES.map((l) => (
-            <option value={l.code} selected={props.values?.language === l.code}>
-              {l.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <button class="btn btn-block" type="submit">Save to my vault</button>
-    </form>
-  </Layout>
-);
-
-vaultRoutes.get('/vault/new', requireAuth, (c) => c.html(<ComposeForm viewer={viewerOf(c)} />));
-
-vaultRoutes.post('/vault/new', requireAuth, async (c) => {
+/* -- Choose what you are adding -------------------------------------------- */
+vaultRoutes.get('/vault/new', requireAuth, (c) => {
   const viewer = viewerOf(c);
+  return c.html(
+    <Layout title="Add something" viewer={viewer} tab="vault"
+            back={{ href: '/vault', label: 'My Vault' }}>
+      <h1>Add something</h1>
+      <p class="page-intro">
+        What would you like to put in your vault? Whatever you choose, nobody
+        else sees it until you say so.
+      </p>
+      {(Object.keys(KINDS) as KindKey[]).map((key) => {
+        const k = KINDS[key];
+        return (
+          <a class="card card-choice" href={`/vault/new/${key}`}>
+            <k.Icon />
+            <span>
+              <h2>{k.title}</h2>
+              <span class="card-meta">{k.blurb}</span>
+            </span>
+          </a>
+        );
+      })}
+    </Layout>,
+  );
+});
+
+/* -- Compose --------------------------------------------------------------- */
+interface ComposeValues {
+  title?: string;
+  body?: string;
+  language?: string;
+  visibility?: string;
+  group_id?: string;
+}
+
+const VISIBILITY_CHOICES = [
+  {
+    value: 'private',
+    Icon: LockIcon,
+    label: 'Only me',
+    hint: 'It stays in your vault. You can share it later, any time.',
+  },
+  {
+    value: 'members',
+    Icon: PersonIcon,
+    label: 'Friends I choose',
+    hint: 'You pick them by name on the next screen.',
+  },
+  {
+    value: 'group',
+    Icon: GroupsIcon,
+    label: 'One of my groups',
+    hint: 'Everyone in that group will see it.',
+  },
+  {
+    value: 'public',
+    Icon: GlobeIcon,
+    label: 'Offer it to the public pages',
+    hint: 'An admin reads it first. Nothing goes public without that.',
+  },
+] as const;
+
+const ComposeForm: FC<{
+  viewer: ReturnType<typeof viewerOf>;
+  kind: KindKey;
+  groups: { id: string; name: string }[];
+  error?: string;
+  values?: ComposeValues;
+}> = ({ viewer, kind, groups, error, values }) => {
+  const k = KINDS[kind];
+  const chosen = values?.visibility ?? 'private';
+  const choices = VISIBILITY_CHOICES.filter((v) => v.value !== 'group' || groups.length > 0);
+
+  return (
+    <Layout title={k.heading} viewer={viewer} tab="vault"
+            back={{ href: '/vault/new', label: 'Back' }}>
+      <h1>{k.heading}</h1>
+
+      {error && <ErrorNotice title="We could not save that."><p>{error}</p></ErrorNotice>}
+
+      <form method="post" action={`/vault/new/${kind}`} enctype="multipart/form-data">
+        <div class="field">
+          <label for="title">Give it a name</label>
+          <span class="hint">For example: Our first day at BUC</span>
+          <input id="title" name="title" type="text" maxlength={140}
+                 value={values?.title ?? ''} required />
+        </div>
+
+        {k.fileLabel && (
+          <div class="field">
+            <label for="file">{k.fileLabel}</label>
+            <span class="hint">Up to {MB(MAX_BYTES_BY_KIND[k.medium])} MB.</span>
+            <input id="file" name="file" type="file" accept={k.accept ?? undefined} required />
+          </div>
+        )}
+
+        <div class="field">
+          <label for="body">{k.bodyLabel}</label>
+          <span class="hint">{k.bodyHint}</span>
+          <textarea id="body" name="body" required={kind === 'story'}>
+            {values?.body ?? ''}
+          </textarea>
+        </div>
+
+        {kind === 'photo' && (
+          <div class="field">
+            <label for="alt">Describe the photo in a few words</label>
+            <span class="hint">
+              Optional. This helps friends who cannot see the picture clearly.
+            </span>
+            <input id="alt" name="alt" type="text" maxlength={200} />
+          </div>
+        )}
+
+        <div class="field">
+          <label for="language">What language did you write in?</label>
+          <span class="hint">
+            We use this to offer translations underneath your story later.
+          </span>
+          <select id="language" name="language">
+            {LANGUAGES.map((l) => (
+              <option value={l.code} selected={(values?.language ?? 'en') === l.code}>
+                {l.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Chosen here, at the moment of writing, rather than left to a second
+            screen someone might never reach. "Only me" is pre-selected: the
+            safe answer should never be the one you have to remember to pick. */}
+        <fieldset class="choices">
+          <legend>Who should be able to see this?</legend>
+          {choices.map((v) => (
+            <label class="check">
+              <input type="radio" name="visibility" value={v.value}
+                     checked={chosen === v.value} />
+              <span>
+                <span class="check-label"><v.Icon /> {v.label}</span>
+                <span class="card-meta">{v.hint}</span>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+
+        {groups.length > 0 && (
+          <div class="field">
+            <label for="group_id">Which group?</label>
+            <span class="hint">Only used if you chose “One of my groups” above.</span>
+            <select id="group_id" name="group_id">
+              <option value="">Please choose…</option>
+              {groups.map((g) => (
+                <option value={g.id} selected={values?.group_id === g.id}>{g.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <button class="btn btn-block" type="submit">Save to my vault</button>
+      </form>
+    </Layout>
+  );
+};
+
+/** The groups this member may actually share into. */
+function groupsFor(db: D1Database, memberId: string) {
+  return db
+    .prepare(
+      `SELECT g.id, g.name FROM groups g
+         JOIN group_members gm ON gm.group_id = g.id
+        WHERE gm.member_id = ?1 AND gm.state = 'active'
+        ORDER BY g.name`,
+    )
+    .bind(memberId)
+    .all<{ id: string; name: string }>();
+}
+
+vaultRoutes.get('/vault/new/:kind', requireAuth, async (c) => {
+  const viewer = viewerOf(c);
+  const kind = c.req.param('kind');
+  if (!isKind(kind)) return c.notFound();
+
+  const { results: groups } = await groupsFor(c.env.DB, viewer.id);
+  return c.html(<ComposeForm viewer={viewer} kind={kind} groups={groups} />);
+});
+
+vaultRoutes.post('/vault/new/:kind', requireAuth, async (c) => {
+  const viewer = viewerOf(c);
+  const kind = c.req.param('kind');
+  if (!isKind(kind)) return c.notFound();
+
+  const k = KINDS[kind];
   const form = await c.req.formData();
 
   const title = String(form.get('title') ?? '').trim();
   const body = String(form.get('body') ?? '').trim();
   const alt = String(form.get('alt') ?? '').trim() || null;
   const language = String(form.get('language') ?? 'en');
+  const visibility = String(form.get('visibility') ?? 'private');
+  const groupId = String(form.get('group_id') ?? '') || null;
   const file = form.get('file');
   const hasFile = file instanceof File && file.size > 0;
 
-  const values = { title, body, language };
+  const { results: groups } = await groupsFor(c.env.DB, viewer.id);
+  const values: ComposeValues = { title, body, language, visibility, group_id: groupId ?? undefined };
+  const fail = (error: string) =>
+    c.html(<ComposeForm viewer={viewer} kind={kind} groups={groups}
+                        values={values} error={error} />, 400);
 
-  if (!title) {
-    return c.html(<ComposeForm viewer={viewer} values={values}
-                    error="Please give it a name so you can find it later." />, 400);
+  if (!title) return fail('Please give it a name so you can find it later.');
+  if (!['en', 'ta', 'si'].includes(language)) return fail('Please choose a language.');
+
+  if (k.fileLabel && !hasFile) return fail(`Please choose ${k.noun} to add.`);
+
+  // Before anything reaches R2. The member said what this was; hold them to it
+  // rather than trusting a MIME type an old Android browser may have invented.
+  if (hasFile) {
+    const actual = kindOf(file.type);
+    if (!actual) {
+      return fail('That kind of file cannot be added yet. Photos, recordings and videos work.');
+    }
+    if (actual !== k.medium) {
+      return fail(
+        `That file is ${MEDIA_NOUN[actual]}, not ${k.noun}. Go back and pick` +
+        ' another file, or start again and choose the right kind.',
+      );
+    }
   }
-  if (!body && !hasFile) {
-    return c.html(<ComposeForm viewer={viewer} values={values}
-                    error="Add a few words or attach a photo — otherwise there is nothing to save." />, 400);
+  if (!k.fileLabel && !body) {
+    return fail('There is nothing to save yet — write a few words first.');
   }
-  if (!['en', 'ta', 'si'].includes(language)) {
-    return c.html(<ComposeForm viewer={viewer} values={values}
-                    error="Please choose a language." />, 400);
+
+  if (!['private', 'members', 'group', 'public'].includes(visibility)) {
+    return fail('Please choose who can see this.');
+  }
+
+  // Checked before anything is written, so a member never ends up with a post
+  // saved and a share silently dropped.
+  if (visibility === 'group') {
+    if (!groupId) return fail('Please choose which group.');
+    if (!groups.some((g) => g.id === groupId)) {
+      return fail('You are not in that group any more. Please choose another.');
+    }
   }
 
   const postId = newId();
-  let medium: 'text' | 'photo' | 'audio' | 'video' = 'text';
 
   // Posts land as 'posted' rather than 'draft': for this audience an extra
   // publish step is a trapdoor, not a safety net. Privacy comes from sharing
@@ -194,26 +432,37 @@ vaultRoutes.post('/vault/new', requireAuth, async (c) => {
       `INSERT INTO posts (id, author_id, title, body, medium, language, state)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'posted')`,
     )
-    .bind(postId, viewer.id, title, body || null, medium, language)
+    .bind(postId, viewer.id, title, body || null, k.medium, language)
     .run();
 
   if (hasFile) {
     try {
-      const stored = await storeUpload(c.env, file, viewer.id, postId, alt);
-      medium = stored.kind === 'pdf' ? 'text' : stored.kind;
-      await c.env.DB
-        .prepare('UPDATE posts SET medium = ?1 WHERE id = ?2')
-        .bind(medium, postId)
-        .run();
+      await storeUpload(c.env, file, viewer.id, postId, alt);
     } catch (err) {
       // Roll the post back so a failed upload never leaves a stub behind.
       await c.env.DB.prepare('DELETE FROM posts WHERE id = ?1').bind(postId).run();
-      const msg = err instanceof UploadError
-        ? err.message
-        : 'Something went wrong while saving that file. Please try again.';
-      return c.html(<ComposeForm viewer={viewer} values={values} error={msg} />, 400);
+      return fail(err instanceof UploadError ? err.message
+        : 'Something went wrong while saving that file. Please try again.');
     }
   }
+
+  if (visibility === 'group' && groupId) {
+    await c.env.DB
+      .prepare(
+        `INSERT OR IGNORE INTO post_shares
+           (id, post_id, audience_kind, audience_id, granted_by)
+         VALUES (?1, ?2, 'group', ?3, ?4)`,
+      )
+      .bind(newId(), postId, groupId, viewer.id)
+      .run();
+  }
+
+  if (visibility === 'public') {
+    await submitForPublic(c.env.DB, postId, viewer.id);
+  }
+
+  // Naming people needs the full list, so that one goes to its own screen.
+  if (visibility === 'members') return c.redirect(`/post/${postId}/share`, 303);
 
   return c.redirect(`/post/${postId}`, 303);
 });
@@ -252,6 +501,10 @@ vaultRoutes.get('/post/:id/edit', requireAuth, async (c) => {
         </div>
         <button class="btn btn-block" type="submit">Save changes</button>
       </form>
+
+      <p style="margin-top:1.25rem">
+        <a class="back" href={`/post/${post.id}/share`}>Change who can see this</a>
+      </p>
 
       <h2 class="section-title">Remove this</h2>
       <p class="page-intro">

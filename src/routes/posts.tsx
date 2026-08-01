@@ -4,7 +4,7 @@ import { Layout, VisibilityChip, ErrorNotice } from '../views/layout';
 import { LockIcon } from '../views/icons';
 import { requireAuth, viewerOf } from '../lib/guard';
 import {
-  getPost, sharesForPost, publicStatusFor, submitForPublic,
+  getPost, getPostForModeration, sharesForPost, publicStatusFor, submitForPublic,
 } from '../lib/visibility';
 import { mediaForPost, type MediaRow } from '../lib/media';
 import { newId } from '../lib/ids';
@@ -55,7 +55,15 @@ postRoutes.get('/post/:id', async (c) => {
   const viewer = c.get('viewer');
   const id = c.req.param('id');
 
-  const post = await getPost(c.env.DB, viewer?.id ?? null, id);
+  let post = await getPost(c.env.DB, viewer?.id ?? null, id);
+
+  // An admin reading something that has been put forward for the public pages.
+  // The queue links straight here, and a moderator who cannot open the thing
+  // they are approving is no moderator at all. This does not open private
+  // vaults: the post must carry the member's own 'public' share row.
+  const moderating = !post && viewer?.role === 'admin';
+  if (moderating) post = await getPostForModeration(c.env.DB, id);
+
   if (!post) return c.notFound();
 
   const isAuthor = viewer?.id === post.author_id;
@@ -88,6 +96,16 @@ postRoutes.get('/post/:id', async (c) => {
         {post.author_name}
         {isAuthor && <> · <VisibilityChip kind={reach} /></>}
       </p>
+
+      {moderating && (
+        <div class="notice" role="status">
+          <strong>You are reading this to decide about the public pages.</strong>
+          <p>
+            {post.author_name} offered it. Nobody outside the batch can see it
+            yet. <a href="/admin/queue">Go back to the queue to decide</a>.
+          </p>
+        </div>
+      )}
 
       {media.map((m) => <MediaBlock m={m} />)}
 
@@ -214,6 +232,21 @@ postRoutes.get('/post/:id/share', requireAuth, async (c) => {
     .bind(id)
     .first();
 
+  const { results: already } = await sharesForPost(c.env.DB, id);
+
+  // Resolved from the database, never taken from the query string as text.
+  const addedId = c.req.query('added');
+  const added = addedId
+    ? (await c.env.DB
+        .prepare(
+          `SELECT COALESCE(m.preferred_name, m.full_name) AS name
+             FROM post_shares s JOIN members m ON m.id = s.audience_id
+            WHERE s.post_id = ?1 AND s.audience_kind = 'member' AND s.audience_id = ?2`,
+        )
+        .bind(id, addedId)
+        .first<{ name: string }>())?.name ?? null
+    : null;
+
   return c.html(
     <Layout title="Share" viewer={viewer} tab="vault"
             back={{ href: `/post/${id}`, label: 'Back to the post' }}>
@@ -222,7 +255,31 @@ postRoutes.get('/post/:id/share', requireAuth, async (c) => {
         Choose who you would like to see this. You can undo any of it later.
       </p>
 
-      <h2 class="section-title">With one friend</h2>
+      {added && (
+        <div class="notice" role="status">
+          <strong>Shared with {added}.</strong>
+          <p>Add somebody else below, or go back to the post when you are done.</p>
+        </div>
+      )}
+
+      {already.length > 0 && (
+        <>
+          <h2 class="section-title">Already shared with</h2>
+          <ul style="padding-left:1.2rem;margin:0 0 1.25rem">
+            {already.map((s) => (
+              <li style="margin-bottom:0.4rem">
+                {s.audience_kind === 'public'
+                  ? 'The public pages — waiting for an admin'
+                  : s.audience_kind === 'group'
+                    ? `Everyone in ${s.audience_name}`
+                    : s.audience_name}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      <h2 class="section-title">With a friend</h2>
       {members.length === 0 ? (
         <p class="page-intro">You have already shared this with everyone.</p>
       ) : (
@@ -240,6 +297,9 @@ postRoutes.get('/post/:id/share', requireAuth, async (c) => {
               </select>
             </div>
           </div>
+          {/* One at a time, and the screen comes straight back with a
+              confirmation. A multi-select on a phone gives no feedback until
+              the very end, and this way each name is visibly accounted for. */}
           <button class="btn btn-block" type="submit">Share with this friend</button>
         </form>
         <script
@@ -293,6 +353,12 @@ postRoutes.get('/post/:id/share', requireAuth, async (c) => {
           </form>
         </>
       )}
+
+      <p style="margin-top:2rem">
+        <a class="btn btn-secondary btn-block" href={`/post/${id}`}>
+          Done — back to the post
+        </a>
+      </p>
     </Layout>,
   );
 });
@@ -339,7 +405,12 @@ postRoutes.post('/post/:id/share', requireAuth, async (c) => {
     .bind(newId(), id, kind, audienceId, viewer.id)
     .run();
 
-  return c.redirect(`/post/${id}`, 303);
+  if (kind === 'group') return c.redirect(`/post/${id}`, 303);
+
+  // Back to the picker, so sharing with several friends is one screen and a
+  // visible confirmation each time rather than a multi-select in the dark.
+  // The id travels, not the name: nothing from the URL is ever put on the page.
+  return c.redirect(`/post/${id}/share?added=${audienceId}`, 303);
 });
 
 postRoutes.post('/post/:id/unshare', requireAuth, async (c) => {

@@ -109,6 +109,14 @@ one well-tested light theme beats two half-tested ones before a 27-day deadline.
   A 20px box is not a target to give an unsteady hand.
 - **Sign-in asks for one thing.** Email, one button, a link in return. Anything
   a member has to remember is a fallback, placed below and named as one.
+- **Ask what, then show the form for it.** A chooser ahead of a long form beats
+  one form that does everything: the phone opens the right picker and every
+  label can talk about the actual thing. One extra tap is cheap; a form full of
+  fields that do not apply is not.
+- A set of related choices is a real `<fieldset>`/`<legend>` (`.choices`), so
+  the question is announced before the options rather than four loose radios.
+- **The safe option is the pre-selected one.** Never make privacy the thing a
+  member has to remember to choose.
 
 ### Photographs of people
 

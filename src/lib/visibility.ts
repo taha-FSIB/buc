@@ -53,6 +53,25 @@ const READABLE_POST_IDS = `
      AND m.status = 'approved'
 `;
 
+/**
+ * SQL for the ONE read path that is not a member's own reach: a moderator
+ * looking at something that has been offered to the public.
+ *
+ * Deliberately narrow. It requires a 'public' share row — the member's own
+ * act of offering — so a private vault stays unreadable to admins. Consent
+ * exists exactly when the member asked for the post to be seen, and not a
+ * moment before. Callers must be behind requireAdmin.
+ */
+const MODERATABLE_POST_IDS = `
+  SELECT p.id
+    FROM posts p
+    JOIN post_shares s        ON s.post_id = p.id
+    JOIN public_submissions m ON m.post_id = p.id
+   WHERE p.state = 'posted'
+     AND s.audience_kind = 'public'
+     AND m.status IN ('pending', 'approved')
+`;
+
 /** SQL for the anonymous public site: approved public posts only. */
 const PUBLIC_POST_IDS = `
   SELECT p.id
@@ -112,6 +131,23 @@ export async function getPost(
         WHERE p.id IN (${ids}) AND p.id = ?2`,
     )
     .bind(viewerId, postId)
+    .first<PostRow>();
+}
+
+/**
+ * The moderator's read of a single post. Returns null unless the post has
+ * actually been offered to the public pages. Only call this from a route
+ * behind requireAdmin — this module knows about reach, not about roles.
+ */
+export function getPostForModeration(db: D1Database, postId: string) {
+  return db
+    .prepare(
+      `SELECT ${POST_COLUMNS}
+         FROM posts p
+         JOIN members m ON m.id = p.author_id
+        WHERE p.id IN (${MODERATABLE_POST_IDS}) AND p.id = ?1`,
+    )
+    .bind(postId)
     .first<PostRow>();
 }
 
@@ -274,6 +310,28 @@ export async function canReadMedia(
     .first();
 
   return onApprovedPage ? row : null;
+}
+
+/**
+ * The moderator's equivalent for media: a photograph attached to something
+ * offered to the public. Without this, an admin could read the words of a
+ * submission but not see the picture they are being asked to approve.
+ */
+export async function mediaForModeration(
+  db: D1Database,
+  mediaId: string,
+): Promise<{ r2_key: string; mime_type: string } | null> {
+  const row = await db
+    .prepare(
+      `SELECT m.r2_key, m.mime_type
+         FROM media m
+        WHERE m.id = ?1
+          AND m.post_id IN (${MODERATABLE_POST_IDS})`,
+    )
+    .bind(mediaId)
+    .first<{ r2_key: string; mime_type: string }>();
+
+  return row ?? null;
 }
 
 export interface ShareRow {

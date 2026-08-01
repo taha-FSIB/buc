@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { AppBindings } from '../types';
-import { canReadMedia } from '../lib/visibility';
+import { canReadMedia, mediaForModeration } from '../lib/visibility';
 
 export const mediaRoutes = new Hono<AppBindings>();
 
@@ -13,7 +13,16 @@ export const mediaRoutes = new Hono<AppBindings>();
  */
 mediaRoutes.get('/media/:id', async (c) => {
   const viewer = c.get('viewer');
-  const allowed = await canReadMedia(c.env.DB, viewer?.id ?? null, c.req.param('id'));
+  const id = c.req.param('id');
+
+  let allowed = await canReadMedia(c.env.DB, viewer?.id ?? null, id);
+
+  // An admin may also see a photograph attached to something offered to the
+  // public pages — otherwise they would be approving a picture sight unseen.
+  // Nothing else in a private vault opens up: see mediaForModeration.
+  if (!allowed && viewer?.role === 'admin') {
+    allowed = await mediaForModeration(c.env.DB, id);
+  }
 
   // Indistinguishable from a missing object, so this never confirms that a
   // private item exists.

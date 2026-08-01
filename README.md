@@ -42,6 +42,36 @@ in `src/islands/` would need to change.
 
 ---
 
+## Putting something in the vault
+
+Composing asks what you are adding first — a memory, a photograph, a
+recording, a video — and then shows a form built for that. It is one more tap
+than a single do-everything form, and worth it: the phone opens the camera
+roll rather than a file browser, the labels talk about the right thing, and
+the medium is recorded because the member said so rather than because we
+guessed from a MIME type an old Android browser invented.
+
+**Who can see it is chosen on that same screen**, not left to a second step
+somebody might never reach. Four options, with **Only me pre-selected** — the
+safe answer is never the one you have to remember to pick:
+
+| Choice | What happens |
+|---|---|
+| Only me | Nothing else. It sits in the vault. |
+| Friends I choose | Saved, then straight to the picker — one name at a time, each confirmed |
+| One of my groups | Group chosen inline; membership re-checked server-side before saving |
+| Offer to the public pages | Creates the share row **and** a pending submission. Nothing is public yet |
+
+Everything is changeable afterwards from the vault list or the post itself.
+
+Upload ceilings are per kind — 25 MB a photograph, 50 MB a recording, 100 MB a
+video. A 100 MB photograph is a mistake or an attack, and either way the
+member should find out in the first second rather than after ten minutes on a
+mobile connection. A file of the wrong kind is rejected **before** it reaches
+R2, so a refused upload never leaves bytes behind.
+
+---
+
 ## Signing in
 
 There is no public signup. An admin adds a member, and that is the only way in.
@@ -114,9 +144,36 @@ Consequences worth knowing:
   `/media/:id` re-checks on every request, so a link forwarded into the wrong
   WhatsApp group grants nothing.
 
+There is exactly one read that is not a member's own reach: an admin opening
+something that has been **offered** to the public pages, so they can decide
+about it. It needs the member's own `public` share row, so a private vault is
+still closed to admins. It lives in `getPostForModeration` /
+`mediaForModeration`, and nowhere else.
+
 Every read path goes through `src/lib/visibility.ts`. **Do not hand-write
 `SELECT … FROM posts` anywhere else** — the rule is only as strong as the
 number of places it is written down, and that number should stay at one.
+
+### Proving it
+
+```bash
+npm run dev                            # in one terminal
+npm run check:visibility -- http://127.0.0.1:8787
+```
+
+`scripts/check-visibility.mjs` drives the running app — real sessions, real
+uploads to R2, real routes — and asserts a full matrix of who can read what:
+five viewers plus an anonymous visitor against private, friend-shared,
+group-shared, pending, approved and draft posts, and the media hanging off
+them. It cleans up after itself.
+
+It exists because reading the SQL and nodding is not a test. It caught a real
+bug the first time it ran: an admin got a 404 on the very post they were being
+asked to approve, so the "Read the whole thing" link in the moderation queue
+was dead.
+
+Run it before every deploy. If a check fails, the privacy model is broken and
+nothing else matters.
 
 ---
 
@@ -141,6 +198,7 @@ add everyone else. Each one produces a sign-in link and a code like
 |---|---|
 | `npm run dev` | Builds islands, starts wrangler dev |
 | `npm run typecheck` | Typechecks the Worker and the islands |
+| `npm run check:visibility` | Asserts the privacy matrix against a running server |
 | `npm run build:islands` | Bundles `public/islands.js` |
 | `npm run db:local` / `db:remote` | Applies migrations |
 | `npm run db:reset` | Wipes and rebuilds the local database |
@@ -203,7 +261,7 @@ src/
   islands/           The two React components
 public/              styles.css, transcripts.js, islands.js (built)
 design-system/       Design decisions, and what was rejected
-scripts/             make-admin, build-islands
+scripts/             make-admin, build-islands, check-visibility
 ```
 
 ### A trap to avoid

@@ -11,7 +11,8 @@
     "db:local": "wrangler d1 migrations apply buc_alumni --local",
     "db:remote": "wrangler d1 migrations apply buc_alumni --remote",
     "db:reset": "rm -rf .wrangler/state/v3/d1 && npm run db:local",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.islands.json"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.islands.json",
+    "check:visibility": "node scripts/check-visibility.mjs"
   },
   "dependencies": {
     "hono": "^4.6.14",
