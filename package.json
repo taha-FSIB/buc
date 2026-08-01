@@ -1,0 +1,22 @@
+{
+  "name": "buc-alumni-portal",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:local": "wrangler d1 migrations apply buc_alumni --local",
+    "db:remote": "wrangler d1 migrations apply buc_alumni --remote",
+    "db:reset": "rm -rf .wrangler/state/v3/d1 && npm run db:local",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "hono": "^4.6.14"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260730.1",
+    "typescript": "^5.7.2",
+    "wrangler": "^4.118.0"
+  }
+}
