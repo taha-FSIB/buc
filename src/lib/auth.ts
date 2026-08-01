@@ -47,7 +47,9 @@ async function pbkdf2(
     ['deriveBits'],
   );
   const bits = await crypto.subtle.deriveBits(
-    { name: 'PBKDF2', hash: 'SHA-256', salt, iterations: PBKDF2_ITERATIONS },
+    // Cast: workers-types narrows BufferSource to views over a plain
+    // ArrayBuffer, while Uint8Array is typed over ArrayBufferLike.
+    { name: 'PBKDF2', hash: 'SHA-256', salt: salt as BufferSource, iterations: PBKDF2_ITERATIONS },
     key,
     256,
   );

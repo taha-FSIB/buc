@@ -13,5 +13,8 @@
     "noEmit": true,
     "verbatimModuleSyntax": true
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"]
+  // The islands are browser code with a different JSX runtime and DOM lib.
+  // They have their own tsconfig.islands.json.
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["src/islands/**"]
 }

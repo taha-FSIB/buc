@@ -222,3 +222,78 @@ export async function submitForPublic(
       .bind(crypto.randomUUID(), postId, memberId),
   ]);
 }
+
+/**
+ * Media inherits its post's visibility. Media not attached to a post (souvenir
+ * photos, for instance) is readable by its owner, and by anyone once the
+ * souvenir page carrying it is approved.
+ */
+export async function canReadMedia(
+  db: D1Database,
+  viewerId: string | null,
+  mediaId: string,
+): Promise<{ r2_key: string; mime_type: string } | null> {
+  const row = await db
+    .prepare(
+      `SELECT m.r2_key, m.mime_type, m.post_id, m.owner_id
+         FROM media m WHERE m.id = ?1`,
+    )
+    .bind(mediaId)
+    .first<{ r2_key: string; mime_type: string; post_id: string | null; owner_id: string }>();
+
+  if (!row) return null;
+  if (viewerId && row.owner_id === viewerId) return row;
+
+  if (row.post_id) {
+    return (await canRead(db, viewerId, row.post_id)) ? row : null;
+  }
+
+  // Unattached media: visible once it appears on an approved souvenir page.
+  const onApprovedPage = await db
+    .prepare(
+      `SELECT 1 FROM flipbook_pages
+        WHERE status = 'approved'
+          AND (then_media_id = ?1 OR now_media_id = ?1)
+        LIMIT 1`,
+    )
+    .bind(mediaId)
+    .first();
+
+  return onApprovedPage ? row : null;
+}
+
+export interface ShareRow {
+  id: string;
+  audience_kind: 'member' | 'group' | 'public';
+  audience_id: string | null;
+  audience_name: string | null;
+}
+
+/** Who a post currently reaches, for the "Shared with" list on the post page. */
+export function sharesForPost(db: D1Database, postId: string) {
+  return db
+    .prepare(
+      `SELECT s.id, s.audience_kind, s.audience_id,
+              CASE s.audience_kind
+                WHEN 'member' THEN (SELECT COALESCE(preferred_name, full_name)
+                                      FROM members WHERE id = s.audience_id)
+                WHEN 'group'  THEN (SELECT name FROM groups WHERE id = s.audience_id)
+                ELSE NULL
+              END AS audience_name
+         FROM post_shares s
+        WHERE s.post_id = ?1
+        ORDER BY s.audience_kind, audience_name`,
+    )
+    .bind(postId)
+    .all<ShareRow>();
+}
+
+/** Current moderation state of a post's public submission, if any. */
+export function publicStatusFor(db: D1Database, postId: string) {
+  return db
+    .prepare(
+      `SELECT status, review_note FROM public_submissions WHERE post_id = ?1`,
+    )
+    .bind(postId)
+    .first<{ status: string; review_note: string | null }>();
+}

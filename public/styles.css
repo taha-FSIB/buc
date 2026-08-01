@@ -384,6 +384,154 @@ textarea { min-height: 9rem; resize: vertical; line-height: 1.6; }
   color: #fff;
 }
 
+/* --- A button that must read as a link (e.g. "Stop sharing") ------------ */
+
+.linklike {
+  min-height: 44px;
+  padding: 0 0.2rem;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--accent-dark);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.linklike:hover { color: var(--ink); }
+
+/* --- Souvenir flipbook -------------------------------------------------- */
+
+.flip-page {
+  background: var(--card);
+  border: 2px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+.then-now {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-sm);
+  margin-bottom: 1rem;
+}
+
+.then-now figure { margin: 0; }
+
+.then-now img {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  border-radius: 10px;
+  display: block;
+  background: var(--warn-bg);
+}
+
+.then-now figcaption {
+  margin-top: 0.3rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+  text-align: center;
+}
+
+.flip-nav {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}
+
+/* --- Searchable member picker (React island) ---------------------------- */
+
+.picker-list {
+  list-style: none;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  max-height: 19rem;
+  overflow-y: auto;
+  border: 2px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.picker-list li + li { border-top: 2px solid var(--line); }
+
+.picker-list button {
+  display: block;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 0.7rem 0.9rem;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 700;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.picker-list button:hover { background: var(--warn-bg); color: var(--accent-dark); }
+
+.picker-empty { padding: 0.9rem; color: var(--ink-soft); }
+
+/* --- Page turn ---------------------------------------------------------- */
+/* Deliberately a short slide, not a 3D curl: the point is to show which way
+   you moved, not to perform. Suppressed entirely under reduced-motion. */
+
+.flip-turn-next { animation: turn-from-right 240ms ease-out; }
+.flip-turn-prev { animation: turn-from-left 240ms ease-out; }
+
+@keyframes turn-from-right {
+  from { opacity: 0; transform: translateX(14px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes turn-from-left {
+  from { opacity: 0; transform: translateX(-14px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* --- Progress bar (souvenir completion) --------------------------------- */
+
+.progress {
+  display: block;
+  height: 14px;
+  margin-top: 0.6rem;
+  background: var(--warn-bg);
+  border: 2px solid var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progress span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 300ms ease;
+}
+
+/* --- Member directory --------------------------------------------------- */
+
+.directory { list-style: none; margin: 0; padding: 0; }
+
+.directory li { border-bottom: 2px solid var(--line); }
+
+.directory a {
+  display: flex;
+  align-items: center;
+  min-height: var(--tap);
+  padding: 0.7rem 0.2rem;
+  color: var(--ink);
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.directory a:hover { color: var(--accent-dark); }
+
 /* --- Media -------------------------------------------------------------- */
 
 img { max-width: 100%; height: auto; }

@@ -6,3 +6,5 @@ dist/
 *.log
 .DS_Store
 Thumbs.db
+public/islands.js
+public/islands.js.map

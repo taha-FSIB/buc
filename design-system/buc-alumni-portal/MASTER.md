@@ -113,7 +113,11 @@ one well-tested light theme beats two half-tested ones before a 27-day deadline.
 
 ### Performance
 
-- No client JS framework. Server-rendered HTML.
+- Server-rendered HTML by default. **React islands only where a plain form is
+  genuinely worse**: the souvenir flipbook viewer and the share-with-a-friend
+  picker. Both progressively enhance server-rendered markup that already
+  works, and both ship via `preact/compat` (~12 KB gzipped, not ~45 KB).
+  Adding a third island needs a reason written down here.
 - Images lazy-loaded with explicit `width`/`height` to hold CLS < 0.1.
 - Photos from R2 as WebP where possible, always with `alt` text.
 

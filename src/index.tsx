@@ -1,187 +1,141 @@
 import { Hono } from 'hono';
-import type { Context } from 'hono';
 import { getCookie } from 'hono/cookie';
 import type { AppBindings } from './types';
-import { Layout, VisibilityChip, ErrorNotice } from './views/layout';
-import {
-  SESSION_COOKIE, resolveSession, createSession, destroySession,
-  verifyPassphrase, sessionCookie, clearedCookie,
-} from './lib/auth';
-import { feedForViewer, vaultForMember } from './lib/visibility';
+import { Layout } from './views/layout';
+import { PlusIcon } from './views/icons';
+import { SESSION_COOKIE, resolveSession } from './lib/auth';
+import { feedForViewer } from './lib/visibility';
+
+import { authRoutes } from './routes/auth';
+import { vaultRoutes } from './routes/vault';
+import { postRoutes } from './routes/posts';
+import { groupRoutes } from './routes/groups';
+import { souvenirRoutes } from './routes/souvenir';
+import { adminRoutes } from './routes/admin';
+import { publicRoutes } from './routes/publicSite';
+import { moreRoutes } from './routes/more';
+import { mediaRoutes } from './routes/media';
+import { reunionRoutes } from './routes/reunion';
+import { souvenirAdminRoutes } from './routes/souvenirAdmin';
 
 const app = new Hono<AppBindings>();
 
-/* -- Session middleware: every request knows who is looking ---------------- */
+/* -- Every request knows who is looking ------------------------------------ */
 app.use('*', async (c, next) => {
   const viewer = await resolveSession(c.env.DB, getCookie(c, SESSION_COOKIE));
   c.set('viewer', viewer);
   await next();
 });
 
-/** Guard for member-only pages. Callers redirect to sign-in, never a 403 wall. */
-function requireViewer(c: Context<AppBindings>) {
-  return c.get('viewer');
-}
-
 /* -- Static assets --------------------------------------------------------- */
 app.get('/styles.css', (c) => c.env.ASSETS.fetch(c.req.raw));
-
-/* -- Welcome (signed out) -------------------------------------------------- */
-app.get('/welcome', (c) =>
-  c.html(
-    <Layout title="Welcome" viewer={null}>
-      <h1>Welcome back, after 45 years.</h1>
-      <p class="page-intro">
-        This is the home of the pioneer batch of Batticaloa University College —
-        a place to keep our photos, our stories and each other, all in one
-        spot that will still be here years from now.
-      </p>
-      <a class="btn btn-block" href="/signin">Sign in</a>
-      <p class="page-intro" style="margin-top:1.5rem">
-        Not sure how to get in? Ask on our WhatsApp group and one of us will
-        help you — nobody gets left behind.
-      </p>
-    </Layout>,
-  ),
-);
-
-/* -- Sign in --------------------------------------------------------------- */
-app.get('/signin', (c) =>
-  c.html(
-    <Layout title="Sign in" viewer={null} back={{ href: '/welcome', label: 'Back' }}>
-      <h1>Sign in</h1>
-      <p class="page-intro">Use the email address you gave the reunion committee.</p>
-      <form method="post" action="/signin">
-        <div class="field">
-          <label for="email">Your email</label>
-          <input id="email" name="email" type="email" autocomplete="email" required />
-        </div>
-        <div class="field">
-          <label for="passphrase">Your passphrase</label>
-          <span class="hint">The secret words you chose when you first signed in.</span>
-          <input id="passphrase" name="passphrase" type="password"
-                 autocomplete="current-password" required />
-        </div>
-        <button class="btn btn-block" type="submit">Sign in</button>
-      </form>
-      <p style="margin-top:1.25rem">
-        <a class="back" href="/signin/forgot">I have forgotten my passphrase</a>
-      </p>
-    </Layout>,
-  ),
-);
-
-app.post('/signin', async (c) => {
-  const form = await c.req.formData();
-  const email = String(form.get('email') ?? '').trim().toLowerCase();
-  const passphrase = String(form.get('passphrase') ?? '');
-
-  const member = await c.env.DB
-    .prepare(`SELECT id, passphrase_hash, status FROM members WHERE email = ?1`)
-    .bind(email)
-    .first<{ id: string; passphrase_hash: string | null; status: string }>();
-
-  const ok = member?.status === 'active'
-    && (await verifyPassphrase(passphrase, member.passphrase_hash));
-
-  if (!ok) {
-    // One message for every failure mode — never reveal which emails exist.
-    return c.html(
-      <Layout title="Sign in" viewer={null} back={{ href: '/welcome', label: 'Back' }}>
-        <ErrorNotice title="That did not work.">
-          <p>Please check the email and passphrase and try once more.</p>
-        </ErrorNotice>
-        <a class="btn btn-block" href="/signin">Try again</a>
-        <p style="margin-top:1.25rem">
-          <a class="back" href="/signin/forgot">Send me a sign-in code instead</a>
-        </p>
-      </Layout>,
-      401,
-    );
-  }
-
-  const token = await createSession(c.env.DB, member!.id, c.req.header('user-agent') ?? null);
-  c.header('Set-Cookie', sessionCookie(token));
-  return c.redirect('/', 303);
-});
-
-app.post('/signout', async (c) => {
-  await destroySession(c.env.DB, getCookie(c, SESSION_COOKIE));
-  c.header('Set-Cookie', clearedCookie());
-  return c.redirect('/welcome', 303);
-});
+app.get('/transcripts.js', (c) => c.env.ASSETS.fetch(c.req.raw));
+app.get('/islands.js', (c) => c.env.ASSETS.fetch(c.req.raw));
 
 /* -- Home feed ------------------------------------------------------------- */
 app.get('/', async (c) => {
-  const viewer = requireViewer(c);
+  const viewer = c.get('viewer');
   if (!viewer) return c.redirect('/welcome', 303);
 
   const { results } = await feedForViewer(c.env.DB, viewer.id);
+  const mine = results.filter((p) => p.author_id === viewer.id).length;
 
   return c.html(
     <Layout title="Home" viewer={viewer} tab="home">
       <h1>Hello, {viewer.preferred_name ?? viewer.full_name}</h1>
-      <p class="page-intro">Everything friends have shared with you.</p>
+      <p class="page-intro">Your memories, and everything friends have shared with you.</p>
 
-      {results.length === 0 ? (
-        <div class="empty">
-          <h2>Nothing here just yet</h2>
-          <p>
-            When friends share a photo or a story with you, it will appear on
-            this page. You could be the one to start it off.
-          </p>
-          <a class="btn" href="/vault/new">Share a memory</a>
-        </div>
-      ) : (
-        results.map((p) => (
-          <a class="card" href={`/post/${p.id}`}>
-            <h2>{p.title ?? 'Untitled'}</h2>
-            <p class="card-meta">{p.author_name}</p>
-            <p class="card-body">{(p.body ?? '').slice(0, 160)}</p>
-          </a>
-        ))
+      {/* The reunion sits above everything until it has happened — it is the
+          one thing on this site with a date attached. */}
+      <a class="card" href="/reunion"
+         style="border-color:var(--accent);border-width:3px">
+        <h2>Our reunion · 28-29 August</h2>
+        <p class="card-meta">Eastern University · tell us if you are coming</p>
+      </a>
+
+      <a class="btn btn-block" href="/vault/new">
+        <PlusIcon />
+        Share a memory
+      </a>
+
+      <div style="margin-top:2rem">
+        {results.length === 0 ? (
+          <div class="empty">
+            <h2>Nothing here just yet</h2>
+            <p>
+              When you add a memory, or a friend shares one with you, it will
+              appear on this page. You could be the one to start it off.
+            </p>
+            <a class="btn" href="/vault/new">Share a memory</a>
+          </div>
+        ) : (
+          results.map((p) => (
+            <a class="card" href={`/post/${p.id}`}>
+              <h2>{p.title || 'Untitled'}</h2>
+              <p class="card-meta">
+                {p.author_id === viewer.id ? 'You' : p.author_name}
+              </p>
+              {p.body && <p class="card-body">{p.body.slice(0, 160)}</p>}
+            </a>
+          ))
+        )}
+      </div>
+
+      {results.length > 0 && mine === results.length && (
+        <p class="page-intro" style="margin-top:2rem">
+          Only your own memories are here so far. Share one with a friend and
+          theirs will start appearing too.
+        </p>
       )}
     </Layout>,
   );
 });
 
-/* -- My Vault -------------------------------------------------------------- */
-app.get('/vault', async (c) => {
-  const viewer = requireViewer(c);
-  if (!viewer) return c.redirect('/welcome', 303);
+/* -- Feature routers ------------------------------------------------------- */
+app.route('/', authRoutes);
+app.route('/', vaultRoutes);
+app.route('/', postRoutes);
+app.route('/', groupRoutes);
+app.route('/', souvenirRoutes);
+app.route('/', reunionRoutes);
+// Mounted before adminRoutes so /admin/souvenir/compile wins over /admin/souvenir/:pageId.
+app.route('/', souvenirAdminRoutes);
+app.route('/', adminRoutes);
+app.route('/', publicRoutes);
+app.route('/', moreRoutes);
+app.route('/', mediaRoutes);
 
-  const { results } = await vaultForMember(c.env.DB, viewer.id);
-
+/* -- No dead ends ---------------------------------------------------------- */
+app.notFound((c) => {
+  const viewer = c.get('viewer');
   return c.html(
-    <Layout title="My Vault" viewer={viewer} tab="vault">
-      <h1>My Vault</h1>
+    <Layout title="Not found" viewer={viewer ?? null}>
+      <h1>We could not find that page</h1>
       <p class="page-intro">
-        Everything here is private to you until you choose to share it.
+        The link may be old, or it may be something that is not shared with
+        you. Neither is anything to worry about.
       </p>
-      <a class="btn btn-block" href="/vault/new">Add something new</a>
-
-      {results.length === 0 ? (
-        <div class="empty" style="margin-top:1.5rem">
-          <h2>Your vault is empty</h2>
-          <p>
-            Put your first photo or story in — only you will see it until you
-            decide otherwise.
-          </p>
-          <a class="btn" href="/vault/new">Add something</a>
-        </div>
-      ) : (
-        <div style="margin-top:1.5rem">
-          {results.map((p) => (
-            <a class="card" href={`/post/${p.id}`}>
-              <h2>{p.title ?? 'Untitled'}</h2>
-              <p class="card-meta">
-                <VisibilityChip kind={p.state === 'draft' ? 'private' : 'shared'} />
-              </p>
-            </a>
-          ))}
-        </div>
-      )}
+      <a class="btn btn-block" href={viewer ? '/' : '/welcome'}>
+        {viewer ? 'Go to my home page' : 'Go to the start'}
+      </a>
     </Layout>,
+    404,
+  );
+});
+
+app.onError((err, c) => {
+  console.error('Unhandled error:', err);
+  const viewer = c.get('viewer');
+  return c.html(
+    <Layout title="Something went wrong" viewer={viewer ?? null}>
+      <h1>Something went wrong at our end</h1>
+      <p class="page-intro">
+        Nothing you did caused this, and nothing of yours has been lost.
+        Please try again in a moment.
+      </p>
+      <a class="btn btn-block" href={viewer ? '/' : '/welcome'}>Go back</a>
+    </Layout>,
+    500,
   );
 });
 
