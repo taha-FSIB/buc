@@ -224,9 +224,11 @@ export async function submitForPublic(
 }
 
 /**
- * Media inherits its post's visibility. Media not attached to a post (souvenir
- * photos, for instance) is readable by its owner, and by anyone once the
- * souvenir page carrying it is approved.
+ * Media inherits its post's visibility. Media not attached to a post is
+ * readable by its owner, by anyone once the souvenir page carrying it is
+ * approved, and — for a member's profile photograph — by any signed-in member.
+ * A profile photo is shown in the Directory, so it is visible to the batch by
+ * design; it is still never visible to the anonymous public site.
  */
 export async function canReadMedia(
   db: D1Database,
@@ -246,6 +248,18 @@ export async function canReadMedia(
 
   if (row.post_id) {
     return (await canRead(db, viewerId, row.post_id)) ? row : null;
+  }
+
+  // A profile photograph, to a signed-in member. Anonymous visitors get nothing.
+  if (viewerId) {
+    const isProfilePhoto = await db
+      .prepare(
+        `SELECT 1 FROM members
+          WHERE photo_media_id = ?1 AND status = 'active' LIMIT 1`,
+      )
+      .bind(mediaId)
+      .first();
+    if (isProfilePhoto) return row;
   }
 
   // Unattached media: visible once it appears on an approved souvenir page.

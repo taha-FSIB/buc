@@ -105,6 +105,17 @@ one well-tested light theme beats two half-tested ones before a 27-day deadline.
 - Errors next to the field **and** in a `role="alert"` region.
 - Submit buttons show a pending state; never a dead click.
 - Inputs ≥16px so iOS does not zoom on focus.
+- A checkbox and its label are one 52px row (`.check`), the whole row clickable.
+  A 20px box is not a target to give an unsteady hand.
+- **Sign-in asks for one thing.** Email, one button, a link in return. Anything
+  a member has to remember is a fallback, placed below and named as one.
+
+### Photographs of people
+
+- Round, `object-fit: cover`, explicit `width`/`height` so the row does not
+  reflow as images land.
+- No photograph yet → the member's initial on a warm ground, never an empty
+  grey circle. A placeholder that looks broken reads as "the site is broken".
 
 ### Motion
 

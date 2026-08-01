@@ -1,9 +1,14 @@
 import { Hono } from 'hono';
 import type { AppBindings } from '../types';
-import { Layout } from '../views/layout';
+import { Layout, ErrorNotice } from '../views/layout';
 import { requireAdmin, viewerOf } from '../lib/guard';
 import { newId, newInviteCode } from '../lib/ids';
-import { generateLoginCode, hashLoginCode } from '../lib/auth';
+import {
+  generateLoginCode, hashLoginCode, createLoginLink, type LinkPurpose,
+} from '../lib/auth';
+import {
+  emailConfigured, sendInviteLink, sendSignInLink, siteOrigin, type SendResult,
+} from '../lib/mailer';
 
 export const adminRoutes = new Hono<AppBindings>();
 
@@ -251,27 +256,87 @@ adminRoutes.post('/admin/souvenir/:pageId', requireAdmin, async (c) => {
 });
 
 /* -- Members: invite and rescue -------------------------------------------- */
+
+/**
+ * What an admin sees after making a link. Whether or not the email went out,
+ * the link itself is on screen to be copied into WhatsApp — which is how most
+ * of these will actually reach people.
+ */
+function LinkHandout(props: {
+  viewer: ReturnType<typeof viewerOf>;
+  name: string;
+  url: string;
+  code?: string;
+  result: SendResult;
+  configured: boolean;
+}) {
+  const { result, configured } = props;
+  return (
+    <Layout title="Their link" viewer={props.viewer} tab="more"
+            back={{ href: '/admin/members', label: 'Members' }}>
+      <h1>A link for {props.name}</h1>
+
+      {result.sent ? (
+        <div class="notice" role="status">
+          <strong>Emailed to them.</strong>
+          <p>Send the link below as well if you want to be sure.</p>
+        </div>
+      ) : configured ? (
+        <ErrorNotice title="The email did not go out.">
+          <p>Nothing is lost — send them the link below on WhatsApp instead.</p>
+        </ErrorNotice>
+      ) : (
+        <div class="notice" role="status">
+          <strong>Send this to them yourself.</strong>
+          <p>This site does not send email. WhatsApp is usually quicker anyway.</p>
+        </div>
+      )}
+
+      <div class="field">
+        <label for="handout">Their link</label>
+        <span class="hint">
+          Tap and hold to copy. It works once, and only for them.
+        </span>
+        <input id="handout" type="text" value={props.url} readonly
+               onfocus="this.select()" />
+      </div>
+
+      {props.code && (
+        <p>
+          If they would rather type something in, their invitation code is{' '}
+          <strong>{props.code}</strong>.
+        </p>
+      )}
+
+      <a class="btn btn-block" href="/admin/members">Back to members</a>
+    </Layout>
+  );
+}
+
 adminRoutes.get('/admin/members', requireAdmin, async (c) => {
   const viewer = viewerOf(c);
 
   const { results } = await c.env.DB
     .prepare(
-      `SELECT id, full_name, email, status, role, invite_code
+      `SELECT id, full_name, email, status, role, invite_code, batch_year, location
          FROM members ORDER BY status, full_name`,
     )
     .all<{
-      id: string; full_name: string; email: string;
-      status: string; role: string; invite_code: string | null;
+      id: string; full_name: string; email: string; status: string; role: string;
+      invite_code: string | null; batch_year: number | null; location: string | null;
     }>();
+
+  const canEmail = emailConfigured(c.env);
 
   return c.html(
     <Layout title="Members" viewer={viewer} tab="more" back={{ href: '/admin', label: 'Admin' }}>
       <h1>Members</h1>
 
-      <h2 class="section-title">Invite someone</h2>
+      <h2 class="section-title">Add someone</h2>
       <p class="page-intro">
-        This makes a code you can send them on WhatsApp. They use it once to
-        set their own passphrase.
+        {canEmail
+          ? 'They get an email with a link to come straight in — nothing to set up, no password to invent.'
+          : 'This makes a link and a code you can send them on WhatsApp. Either one lets them straight in.'}
       </p>
       <form method="post" action="/admin/members/invite">
         <div class="field">
@@ -282,27 +347,46 @@ adminRoutes.get('/admin/members', requireAdmin, async (c) => {
           <label for="email">Their email</label>
           <input id="email" name="email" type="email" required />
         </div>
-        <button class="btn btn-block" type="submit">Make an invitation code</button>
+        <div class="field">
+          <label for="batch_year">The year they finished at BUC</label>
+          <span class="hint">Optional — they can fill it in themselves.</span>
+          <input id="batch_year" name="batch_year" type="number" inputmode="numeric"
+                 min="1960" max="2030" />
+        </div>
+        <button class="btn btn-block" type="submit">Add them and make a link</button>
       </form>
 
       <h2 class="section-title">Everyone</h2>
       {results.map((m) => (
         <div class="card">
           <h3>{m.full_name}{m.role === 'admin' && ' · admin'}</h3>
-          <p class="card-meta">{m.email} · {m.status}</p>
+          <p class="card-meta">
+            {m.email} · {m.status}
+            {m.batch_year && ` · finished ${m.batch_year}`}
+            {m.location && ` · ${m.location}`}
+          </p>
 
           {m.invite_code && (
             <p>
               Invitation code: <strong>{m.invite_code}</strong>
               <br />
-              <span class="card-meta">Send this to them. It stops working once used.</span>
+              <span class="card-meta">It stops working once used.</span>
             </p>
           )}
 
-          {m.status === 'active' && (
-            <form method="post" action={`/admin/members/${m.id}/reset`}>
+          {m.status !== 'suspended' && (
+            <form method="post" action={`/admin/members/${m.id}/link`}>
               <button class="btn btn-secondary btn-compact" type="submit">
-                Make a reset code
+                {m.status === 'invited' ? 'Make a new invitation link' : 'Make a sign-in link'}
+              </button>
+            </form>
+          )}
+
+          {m.status === 'active' && (
+            <form method="post" action={`/admin/members/${m.id}/reset`}
+                  style="margin-top:0.6rem">
+              <button class="btn btn-secondary btn-compact" type="submit">
+                Make a passphrase reset code
               </button>
             </form>
           )}
@@ -317,34 +401,102 @@ adminRoutes.post('/admin/members/invite', requireAdmin, async (c) => {
   const form = await c.req.formData();
   const fullName = String(form.get('full_name') ?? '').trim();
   const email = String(form.get('email') ?? '').trim().toLowerCase();
+  const yearRaw = String(form.get('batch_year') ?? '').trim();
+  const batchYear = yearRaw && Number.isInteger(Number(yearRaw)) ? Number(yearRaw) : null;
 
   if (!fullName || !email) return c.redirect('/admin/members', 303);
 
-  const id = newId();
   const code = newInviteCode();
+  let memberId = newId();
 
   try {
     await c.env.DB
       .prepare(
-        `INSERT INTO members (id, full_name, email, status, invite_code)
-         VALUES (?1, ?2, ?3, 'invited', ?4)`,
+        `INSERT INTO members (id, full_name, email, status, invite_code, batch_year)
+         VALUES (?1, ?2, ?3, 'invited', ?4, ?5)`,
       )
-      .bind(id, fullName, email, code)
+      .bind(memberId, fullName, email, code, batchYear)
       .run();
   } catch {
-    // Almost always a duplicate email. Re-issue a code for the existing row
-    // rather than telling an admin off for inviting the same friend twice.
-    await c.env.DB
+    // Almost always a duplicate email. Re-issue for the existing row rather
+    // than telling an admin off for inviting the same friend twice.
+    const existing = await c.env.DB
       .prepare(
-        `UPDATE members SET invite_code = ?1
-          WHERE email = ?2 AND status != 'active'`,
+        `UPDATE members SET invite_code = ?1, batch_year = COALESCE(?2, batch_year)
+          WHERE email = ?3 AND status = 'invited'
+        RETURNING id`,
       )
-      .bind(code, email)
-      .run();
+      .bind(code, batchYear, email)
+      .first<{ id: string }>();
+
+    if (!existing) {
+      return c.html(
+        <Layout title="Members" viewer={viewer} tab="more"
+                back={{ href: '/admin/members', label: 'Members' }}>
+          <ErrorNotice title="They are already a member.">
+            <p>
+              {email} has an account and has signed in before. If they are
+              locked out, make them a sign-in link from the list instead.
+            </p>
+          </ErrorNotice>
+          <a class="btn btn-block" href="/admin/members">Back to members</a>
+        </Layout>,
+        409,
+      );
+    }
+    memberId = existing.id;
   }
 
-  await log(c.env.DB, viewer.id, 'member_invited', 'member', id, email);
-  return c.redirect('/admin/members', 303);
+  const token = await createLoginLink(c.env.DB, memberId, 'invite');
+  const url = `${siteOrigin(c.env, c.req.url)}/signin/link/${token}`;
+  const result = await sendInviteLink(c.env, email, fullName, url, code);
+
+  await log(c.env.DB, viewer.id, 'member_invited', 'member', memberId, email);
+
+  return c.html(
+    <LinkHandout viewer={viewer} name={fullName} url={url} code={code}
+                 result={result} configured={emailConfigured(c.env)} />,
+  );
+});
+
+/**
+ * A link for someone who is stuck — never got the email, cannot find it, or
+ * has changed address. The admin reads it out or pastes it into WhatsApp.
+ */
+adminRoutes.post('/admin/members/:id/link', requireAdmin, async (c) => {
+  const viewer = viewerOf(c);
+  const memberId = c.req.param('id');
+
+  const member = await c.env.DB
+    .prepare(
+      `SELECT full_name, preferred_name, email, status, invite_code
+         FROM members WHERE id = ?1`,
+    )
+    .bind(memberId)
+    .first<{
+      full_name: string; preferred_name: string | null;
+      email: string; status: string; invite_code: string | null;
+    }>();
+
+  if (!member) return c.notFound();
+  if (member.status === 'suspended') return c.redirect('/admin/members', 303);
+
+  const purpose: LinkPurpose = member.status === 'invited' ? 'invite' : 'signin';
+  const name = member.preferred_name ?? member.full_name;
+  const token = await createLoginLink(c.env.DB, memberId, purpose);
+  const url = `${siteOrigin(c.env, c.req.url)}/signin/link/${token}`;
+
+  const result = purpose === 'invite'
+    ? await sendInviteLink(c.env, member.email, name, url, member.invite_code ?? '—')
+    : await sendSignInLink(c.env, member.email, name, url);
+
+  await log(c.env.DB, viewer.id, `${purpose}_link_issued`, 'member', memberId);
+
+  return c.html(
+    <LinkHandout viewer={viewer} name={name} url={url}
+                 code={purpose === 'invite' ? member.invite_code ?? undefined : undefined}
+                 result={result} configured={emailConfigured(c.env)} />,
+  );
 });
 
 /**
@@ -394,8 +546,12 @@ adminRoutes.post('/admin/members/:id/reset', requireAdmin, async (c) => {
         </p>
       </div>
       <p class="page-intro">
-        Ask them to go to the sign-in page and choose
-        “I have forgotten my passphrase”.
+        Ask them to open the sign-in page, choose “I would rather use my
+        passphrase”, then “I have forgotten my passphrase”.
+      </p>
+      <p class="page-intro">
+        If they only want to get in, a sign-in link is quicker — go back and
+        make them one instead.
       </p>
       <p class="page-intro">
         This is the only time this code is shown. If it gets lost, just make

@@ -23,5 +23,17 @@ bucket_name = "buc-alumni-media"
 [vars]
 SITE_NAME = "BUC Alumni"
 
+# Absolute origin used to build sign-in links. Leave blank in development (the
+# request's own origin is used) but SET IT BEFORE GOING LIVE: without it, a
+# forged Host header could send a member a real token pointing somewhere else.
+SITE_URL = ""
+
+# From address for sign-in and invitation emails, e.g.
+#   MAIL_FROM = "BUC Alumni <hello@bucpioneers.org>"
+# Leave blank and nothing is emailed: admins copy links out of /admin/members
+# and send them on WhatsApp instead. That is a supported way to run this.
+MAIL_FROM = ""
+
 # Secrets (set with `wrangler secret put <NAME>`, never committed):
 #   SESSION_SECRET  - HMAC key for signing session cookies
+#   RESEND_API_KEY  - email provider key; without it, no email is sent

@@ -18,7 +18,7 @@ follows from that.
 | Interactivity | React islands (Preact/compat), 2 of them | Only where it earns its keep — see below |
 | Database | Cloudflare D1 (SQLite) | Members, groups, posts, share grants, RSVPs |
 | Files | Cloudflare R2 | Photos, audio, video, PDFs |
-| Auth | Email + passphrase (PBKDF2-SHA256) | No per-seat cost, no identity provider to explain |
+| Auth | Emailed sign-in link, passphrase as fallback | Nothing to remember; no identity provider to explain |
 | Souvenir PDF | pdf-lib | Pure JS, runs inside the Worker |
 
 ### Where React is used, and where it is not
@@ -39,6 +39,52 @@ The islands are written as ordinary React and aliased to `preact/compat` at
 build time: same code, ~12 KB gzipped instead of ~45 KB. Swap the alias in
 `scripts/build-islands.mjs` if that trade ever stops being worth it — nothing
 in `src/islands/` would need to change.
+
+---
+
+## Signing in
+
+There is no public signup. An admin adds a member, and that is the only way in.
+
+The normal path has no password in it at all:
+
+1. The member types their email address. One field, one button.
+2. They get a link. Opening it shows **their own name** and a single button.
+3. Tapping it signs them in for 60 days.
+
+Three details are deliberate:
+
+- **The GET does not spend the token.** Mail scanners and corporate "safe
+  links" services follow every URL in an email. If the first request consumed
+  the link, members would routinely find their only way in already used up by
+  their own mail provider. The confirmation screen also reads as reassurance
+  — *Welcome back, Kamala* — rather than as friction.
+- **Links last a day, not fifteen minutes.** This batch checks email once a
+  day, and an admin may forward a link over WhatsApp hours later. A short
+  expiry would not buy security here; it would produce a wall of "this link
+  has expired" and a batch of 70-year-olds concluding the site is broken. The
+  safety comes from single use and a hashed token, not from the clock.
+- **Issuing a link retires the previous one**, and a passphrase reset retires
+  every outstanding link.
+
+A **passphrase is optional**, offered on the profile page for anyone whose
+email is unreliable. It is a fallback, never the front door.
+
+Every sign-in form answers identically whether or not the address belongs to a
+member, so it can never be used to find out who is in the batch. Members are
+limited to three links an hour, so nobody can use the form to flood a friend's
+inbox.
+
+### Email is optional
+
+Set `MAIL_FROM` and the `RESEND_API_KEY` secret and links are emailed. Leave
+them unset and **nothing pretends to have been sent**: the screens say "ask us
+on WhatsApp", and every link an admin can generate is shown on screen at
+`/admin/members` to be copied into a chat. That is a supported way to run this
+site, and given where this batch actually talks, possibly the better one.
+
+Swapping Resend for another provider means changing `deliver()` in
+`src/lib/mailer.ts` and nothing else.
 
 ---
 
@@ -86,8 +132,10 @@ node scripts/make-admin.mjs "Your Name" you@example.com "a passphrase"
 npm run dev                            # http://127.0.0.1:8787
 ```
 
-Sign in as that admin, then use **Admin → Members** to invite everyone else.
-Invitations produce a code like `BUC-4KPQ-8MTX` to send over WhatsApp.
+`make-admin.mjs` sets a passphrase, because the first admin has nobody to send
+them a link. Sign in at `/signin/passphrase`, then use **Admin → Members** to
+add everyone else. Each one produces a sign-in link and a code like
+`BUC-4KPQ-8MTX`, both shown on screen to send over WhatsApp.
 
 | Command | What it does |
 |---|---|
@@ -103,9 +151,15 @@ Invitations produce a code like `BUC-4KPQ-8MTX` to send over WhatsApp.
 
 ```bash
 npx wrangler secret put SESSION_SECRET
+npx wrangler secret put RESEND_API_KEY   # optional — see "Email is optional"
 npm run db:remote
 npm run deploy
 ```
+
+**Set `SITE_URL` in `wrangler.toml` before going live.** Sign-in links fall
+back to the request's own origin when it is empty, which is convenient in
+development but means a forged `Host` header could have a real member emailed
+a real token pointing at somebody else's site.
 
 For push-to-deploy, connect the repo in the Cloudflare dashboard
 (Workers & Pages → Create → Connect to Git) with build command
@@ -117,17 +171,17 @@ deploy that includes a new file in `migrations/`.
 
 ---
 
-## No email provider — on purpose
+## When somebody is locked out
 
-Nothing here sends email. The batch already talks daily on WhatsApp, so:
+Every route out of trouble goes through WhatsApp, because that is where this
+batch actually is. From **Admin → Members**, an admin can:
 
-- **Joining:** an admin creates the member and sends the invite code.
-- **Forgotten passphrase:** the member asks on WhatsApp, an admin generates a
-  six-digit reset code from **Admin → Members** and reads it out. It lasts a
-  day and works once.
+- **Make a sign-in link** — works once, lasts a day, shown on screen to paste
+  into a chat. This is the answer to almost every problem.
+- **Make a passphrase reset code** — six digits, read aloud over the phone.
+  Lasts a day, works once, and drops all of that member's other sessions.
 
-This removes a whole class of failure — no mail server, no spam folder a
-72-year-old will never find. Add a provider later if it earns its place.
+No mail server has to be working for either of these. That was the point.
 
 ---
 
@@ -139,7 +193,8 @@ src/
   index.tsx          Entry, session middleware, home feed, error pages
   lib/
     visibility.ts    THE privacy rule — every read goes through here
-    auth.ts          PBKDF2 passphrases, hashed session tokens
+    auth.ts          Sign-in links, PBKDF2 passphrases, hashed session tokens
+    mailer.ts        Optional email delivery; honest when unconfigured
     media.ts         R2 upload/delete, allowed types
     souvenirPdf.ts   Builds the souvenir PDF
     guard.ts         requireAuth / requireAdmin

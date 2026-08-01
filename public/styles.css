@@ -291,6 +291,41 @@ input[type="tel"], textarea, select {
 
 input[aria-invalid="true"] { border-color: var(--accent); }
 
+input[readonly] { background: var(--paper); }
+
+input[type="file"] {
+  width: 100%;
+  min-height: var(--tap);
+  padding: 0.6rem;
+  border: 2px dashed var(--ink-soft);
+  border-radius: var(--radius);
+  background: var(--card);
+  font-family: inherit;
+  font-size: 1rem;
+}
+
+/*
+ * A checkbox and its label as one large target. The whole row is clickable,
+ * because a 20px box is not something to ask an unsteady hand to hit.
+ */
+.check {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  min-height: var(--tap);
+  padding: 0.5rem 0.2rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.check input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 textarea { min-height: 9rem; resize: vertical; line-height: 1.6; }
 
 :focus-visible { outline: 3px solid var(--teal); outline-offset: 2px; }
@@ -531,6 +566,61 @@ textarea { min-height: 9rem; resize: vertical; line-height: 1.6; }
 }
 
 .directory a:hover { color: var(--accent-dark); }
+
+/* A face beside each name. After 45 years, a name alone is not enough. */
+.member-list { list-style: none; margin: 0; padding: 0; }
+
+.member-list li { border-bottom: 2px solid var(--line); }
+
+.member-list a {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  min-height: var(--tap);
+  padding: 0.7rem 0.2rem;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.member-list a:hover { color: var(--accent-dark); }
+
+.member-name { display: block; font-weight: 700; }
+.member-name .card-meta { display: block; margin: 0.1rem 0 0; font-weight: 400; }
+
+.avatar {
+  width: 56px;
+  height: 56px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--paper);
+  border: 2px solid var(--line);
+}
+
+/* Initial in place of a photograph — never an empty grey circle. */
+.avatar-blank {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 1.4rem;
+  color: var(--accent-dark);
+  background: var(--warn-bg);
+}
+
+.avatar-large { width: 120px; height: 120px; }
+.avatar-large.avatar-blank { font-size: 3rem; }
+
+.member-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-md);
+}
+
+.member-head h1 { margin-bottom: 0.2rem; }
+.member-head .card-meta { margin: 0.1rem 0 0; }
 
 /* --- Media -------------------------------------------------------------- */
 
