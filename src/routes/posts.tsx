@@ -7,11 +7,10 @@ import {
   getPost, getPostForModeration, sharesForPost, publicStatusFor, submitForPublic,
 } from '../lib/visibility';
 import { mediaForPost, type MediaRow } from '../lib/media';
+import { StoryText, LANGUAGE_LABEL as LANG_LABEL } from '../views/story';
 import { newId } from '../lib/ids';
 
 export const postRoutes = new Hono<AppBindings>();
-
-const LANG_LABEL: Record<string, string> = { en: 'English', ta: 'Tamil', si: 'Sinhala' };
 
 /** Which transcripts a post should carry, per the language rule in CLAUDE.md. */
 export function wantedTranscripts(language: string): string[] {
@@ -109,40 +108,9 @@ postRoutes.get('/post/:id', async (c) => {
 
       {media.map((m) => <MediaBlock m={m} />)}
 
-      {post.body && (
-        <div style="max-width:34rem">
-          {post.body.split(/\n{2,}/).map((para) => <p>{para}</p>)}
-        </div>
-      )}
-
-      {/* Transcripts: supplementary, under the content, never navigation. */}
-      {transcripts.length > 0 && (
-        <section class="transcripts">
-          <h3>Also available in</h3>
-          <div class="transcript-tabs" role="tablist">
-            {transcripts.map((t, i) => (
-              <button type="button" role="tab" aria-selected={i === 0 ? 'true' : 'false'}
-                      aria-controls={`transcript-${t.language}`}
-                      data-transcript-tab={t.language}>
-                {LANG_LABEL[t.language] ?? t.language}
-              </button>
-            ))}
-          </div>
-          {transcripts.map((t, i) => (
-            <div id={`transcript-${t.language}`} role="tabpanel"
-                 data-transcript-panel={t.language}
-                 hidden={i !== 0} lang={t.language}>
-              {t.body.split(/\n{2,}/).map((para) => <p>{para}</p>)}
-              {t.source === 'machine' && (
-                <p class="card-meta">
-                  This translation was made automatically and checked by a member.
-                </p>
-              )}
-            </div>
-          ))}
-          <script src="/transcripts.js" defer></script>
-        </section>
-      )}
+      {/* The member's own words first, with any translation a tap away
+          beneath them. Never in the site navigation — see views/story.tsx. */}
+      <StoryText language={post.language} body={post.body} transcripts={transcripts} />
 
       {isAuthor && (
         <>
@@ -183,7 +151,11 @@ postRoutes.get('/post/:id', async (c) => {
             <a class="back" href={`/post/${id}/edit`}>Edit or delete this</a>
           </p>
           <p>
-            <a class="back" href={`/post/${id}/transcripts`}>Add a translation</a>
+            <a class="back" href={`/post/${id}/transcripts`}>
+              {post.medium === 'audio' || post.medium === 'video'
+                ? 'Write out what is said'
+                : 'Add another language'}
+            </a>
           </p>
         </>
       )}
@@ -452,9 +424,9 @@ postRoutes.get('/post/:id/transcripts', requireAuth, async (c) => {
   const id = c.req.param('id');
 
   const post = await c.env.DB
-    .prepare('SELECT id, title, language FROM posts WHERE id = ?1 AND author_id = ?2')
+    .prepare('SELECT id, title, language, medium, body FROM posts WHERE id = ?1 AND author_id = ?2')
     .bind(id, viewer.id)
-    .first<{ id: string; title: string; language: string }>();
+    .first<{ id: string; title: string; language: string; medium: string; body: string | null }>();
   if (!post) return c.notFound();
 
   const { results: existing } = await c.env.DB
@@ -464,30 +436,61 @@ postRoutes.get('/post/:id/transcripts', requireAuth, async (c) => {
 
   const byLang = new Map(existing.map((t) => [t.language, t.body]));
   const wanted = wantedTranscripts(post.language);
+  const spoken = post.medium === 'audio' || post.medium === 'video';
 
   return c.html(
-    <Layout title="Translations" viewer={viewer} tab="vault"
+    <Layout title="Other languages" viewer={viewer} tab="vault"
             back={{ href: `/post/${id}`, label: 'Back to the post' }}>
-      <h1>Translations</h1>
+      <h1>Other languages</h1>
       <p class="page-intro">
-        You wrote this in {LANG_LABEL[post.language]}. Adding a translation lets
-        more of the batch read it. These appear underneath your story, not as
-        separate pages.
+        {spoken
+          ? `You recorded this in ${LANG_LABEL[post.language]}. Writing out what is
+             said lets people follow it who cannot hear it well, or who read a
+             different language.`
+          : `You wrote this in ${LANG_LABEL[post.language]}. Adding a translation
+             lets more of the batch read it.`}
+      </p>
+      <p class="page-intro">
+        These appear underneath your story with a small switch, never as a
+        separate page. What you wrote yourself is always what shows first.
       </p>
 
-      {wanted.map((lang) => (
-        <form method="post" action={`/post/${id}/transcripts`}>
-          <input type="hidden" name="language" value={lang} />
-          <div class="field">
-            <label for={`t-${lang}`}>In {LANG_LABEL[lang]}</label>
-            <span class="hint">Leave empty if you would rather not.</span>
-            <textarea id={`t-${lang}`} name="body" lang={lang}>{byLang.get(lang) ?? ''}</textarea>
-          </div>
-          <button class="btn btn-block" type="submit">
-            Save the {LANG_LABEL[lang]} translation
-          </button>
-        </form>
-      ))}
+      {spoken && !post.body && (
+        <div class="notice">
+          <strong>There are no words on this one yet.</strong>
+          <p>
+            Whatever you put below will be the only text version, so it is
+            worth doing even in the language you spoke.
+          </p>
+        </div>
+      )}
+
+      {wanted.map((lang) => {
+        const current = byLang.get(lang);
+        return (
+          <form method="post" action={`/post/${id}/transcripts`}>
+            <h2 class="section-title">
+              In {LANG_LABEL[lang]}
+              {current && <span class="chip chip-shared" style="margin-left:0.6rem">Added</span>}
+            </h2>
+            <input type="hidden" name="language" value={lang} />
+            <div class="field">
+              <label for={`t-${lang}`}>
+                {spoken ? `What is said, in ${LANG_LABEL[lang]}` : `The ${LANG_LABEL[lang]} version`}
+              </label>
+              <span class="hint">
+                {current
+                  ? 'Clear the box and save to take this one away again.'
+                  : 'Leave it empty if you would rather not — nothing is expected.'}
+              </span>
+              <textarea id={`t-${lang}`} name="body" lang={lang}>{current ?? ''}</textarea>
+            </div>
+            <button class="btn btn-block" type="submit">
+              {current ? `Save the ${LANG_LABEL[lang]} version` : `Add the ${LANG_LABEL[lang]} version`}
+            </button>
+          </form>
+        );
+      })}
     </Layout>,
   );
 });

@@ -72,6 +72,49 @@ R2, so a refused upload never leaves bytes behind.
 
 ---
 
+## Three languages, one interface
+
+A member writes in English, Tamil or Sinhala, chosen when they post. English
+can carry Tamil and Sinhala translations; Tamil or Sinhala can carry an
+English one. What shows first is always what the member actually wrote — a
+translation is supplementary, never a replacement.
+
+The switch sits **beneath the words and never in the site navigation**, and
+both the members' page and the public page render it from the same component
+(`src/views/story.tsx`) so the two cannot drift apart.
+
+**The interface itself is never translated.** The buttons say "English",
+"Tamil", "Sinhala" — in English, including the Tamil one. That is the language
+rule in CLAUDE.md, and it is right: a member who reads only Sinhala still
+needs the chrome to keep its shape, and a control that renames itself is
+exactly the kind of surprise this audience does not need. The words inside the
+panel are in the language; everything around it is not.
+
+Three details that are easy to get wrong:
+
+- **Every language is rendered visible.** `transcripts.js` collapses to one
+  once it has loaded. With JavaScript off, blocked or still arriving, the
+  reader gets all of them stacked — worse looking, and infinitely better than
+  a translation nobody can reach. The previous version hid all but the first
+  server-side, which left a second translation unreachable without script.
+- **They are toggle buttons, not an ARIA tablist.** `role="tab"` promises
+  arrow-key navigation between tabs. Claiming a keyboard behaviour that is not
+  implemented is worse than not claiming it, so these are plain buttons with
+  `aria-pressed`.
+- **Atkinson Hyperlegible has no Tamil or Sinhala glyphs.** Without Noto, a
+  translation falls back to whatever the phone has, which on plenty of older
+  Android handsets is a row of empty boxes. Both Noto families are in the same
+  stylesheet request; `unicode-range` means a page with no Tamil or Sinhala on
+  it downloads neither font file.
+
+Order is fixed (`en`, `ta`, `si`) rather than whatever SQL returned, so the
+buttons never move about between two pages showing the same story.
+
+For a recording, the same screen writes out what is said — which for an audio
+memory in Tamil with an English transcript is the whole point of the feature.
+
+---
+
 ## The public site
 
 Five pages, no session needed: **Home** (`/`), **Our Story** (`/our-story`),
@@ -345,7 +388,7 @@ src/
     souvenirPdf.ts   Builds the souvenir PDF
     guard.ts         requireAuth / requireAdmin
   routes/            One file per area of the site
-  views/             Layout, icons (inline SVG, never emoji)
+  views/             Layout, icons (inline SVG, never emoji), story + language switch
   islands/           The two React components
 public/              styles.css, transcripts.js, islands.js (built)
 design-system/       Design decisions, and what was rejected

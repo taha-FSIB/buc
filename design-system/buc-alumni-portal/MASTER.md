@@ -62,6 +62,10 @@ one well-tested light theme beats two half-tested ones before a 27-day deadline.
 ### Typography
 
 - **Font:** Atkinson Hyperlegible, weights 400 + 700 only, `display=swap`, system fallback.
+- **Tamil and Sinhala:** Noto Sans Tamil / Noto Sans Sinhala, selected by
+  `:lang()`. Atkinson carries neither script — without these, a translation
+  renders as tofu on a good number of older Android handsets. Line height goes
+  to 1.8 for both; the glyphs are taller.
 - **Base size 19px**, not 16px. The 16px floor is a minimum, not a target.
 - Line height 1.6 body / 1.25 headings. Reading measure capped at ~34rem.
 - Letter-spacing: **never negative.**
@@ -117,6 +121,14 @@ one well-tested light theme beats two half-tested ones before a 27-day deadline.
   the question is announced before the options rather than four loose radios.
 - **The safe option is the pre-selected one.** Never make privacy the thing a
   member has to remember to choose.
+
+### ARIA
+
+- Claim only what is implemented. `role="tab"` promises arrow-key navigation
+  between tabs; if that is not built, use toggle buttons with `aria-pressed`
+  instead. A promise the keyboard does not keep is worse than no promise.
+- Content in Tamil or Sinhala carries `lang` on its container, so a screen
+  reader switches voice instead of reading Tamil as though it were English.
 
 ### Photographs of people
 

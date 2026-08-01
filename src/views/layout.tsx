@@ -53,9 +53,17 @@ export const Layout: FC<PropsWithChildren<LayoutProps>> = ({
       <meta property="og:type" content="website" />
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+      {/*
+        Atkinson Hyperlegible carries no Tamil or Sinhala glyphs, so a
+        transcript in either would fall back to whatever the phone happens to
+        have — which on a good number of older Android handsets is a row of
+        empty boxes. Noto covers both. The stylesheet declares unicode-range
+        per family, so a page with no Tamil or Sinhala on it downloads neither
+        font file; the cost of carrying them is one stylesheet request.
+      */}
       <link
         rel="stylesheet"
-        href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Noto+Sans+Tamil:wght@400;700&family=Noto+Sans+Sinhala:wght@400;700&display=swap"
       />
       <link rel="stylesheet" href="/styles.css" />
       <meta name="theme-color" content="#fffbeb" />

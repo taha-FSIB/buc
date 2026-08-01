@@ -3,6 +3,7 @@ import type { Context } from 'hono';
 import type { AppBindings } from '../types';
 import { Layout, ErrorNotice } from '../views/layout';
 import { publicFeed, getPost } from '../lib/visibility';
+import { StoryText } from '../views/story';
 import { newId } from '../lib/ids';
 
 export const publicRoutes = new Hono<AppBindings>();
@@ -212,8 +213,6 @@ publicRoutes.get('/stories/:id', async (c) => {
       .all<{ language: string; body: string }>(),
   ]);
 
-  const LANG: Record<string, string> = { en: 'English', ta: 'Tamil', si: 'Sinhala' };
-
   return c.html(
     <Layout title={post.title ?? 'A memory'} viewer={viewer ?? null} publicTab="stories"
             description={post.body?.slice(0, 180) ?? TAGLINE}
@@ -237,33 +236,9 @@ publicRoutes.get('/stories/:id', async (c) => {
         ) : null,
       )}
 
-      {post.body && (
-        <div style="max-width:34rem">
-          {post.body.split(/\n{2,}/).map((para) => <p>{para}</p>)}
-        </div>
-      )}
-
-      {transcripts.length > 0 && (
-        <section class="transcripts">
-          <h3>Also available in</h3>
-          <div class="transcript-tabs" role="tablist">
-            {transcripts.map((t, i) => (
-              <button type="button" role="tab" aria-selected={i === 0 ? 'true' : 'false'}
-                      aria-controls={`transcript-${t.language}`}
-                      data-transcript-tab={t.language}>
-                {LANG[t.language] ?? t.language}
-              </button>
-            ))}
-          </div>
-          {transcripts.map((t, i) => (
-            <div id={`transcript-${t.language}`} role="tabpanel"
-                 data-transcript-panel={t.language} hidden={i !== 0} lang={t.language}>
-              {t.body.split(/\n{2,}/).map((para) => <p>{para}</p>)}
-            </div>
-          ))}
-          <script src="/transcripts.js" defer></script>
-        </section>
-      )}
+      {/* Exactly the same component the members' page uses, so the two cannot
+          drift apart in how somebody's words are presented. */}
+      <StoryText language={post.language} body={post.body} transcripts={transcripts} />
     </Layout>,
   );
 });
