@@ -12,9 +12,23 @@
  */
 import { build } from 'esbuild';
 import { gzipSync } from 'node:zlib';
-import { readFileSync } from 'node:fs';
+import { readFileSync, rmSync } from 'node:fs';
 
 const dev = process.argv.includes('--dev');
+
+/*
+ * A production build clears any sourcemap a previous dev build left behind.
+ *
+ * `wrangler deploy` ships whatever is sitting in public/, and a dev build
+ * writes .map files there. Without this, a deploy that happens to follow a
+ * `npm run dev` publishes 900 KB of maps and the original TypeScript to the
+ * open web — which happened, and was only caught by reading the upload list.
+ */
+if (!dev) {
+  for (const f of ['public/islands.js.map', 'public/motion.js.map']) {
+    rmSync(f, { force: true });
+  }
+}
 
 const common = {
   bundle: true,

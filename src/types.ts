@@ -5,7 +5,6 @@ export interface Env {
   MEDIA: R2Bucket;
   ASSETS: Fetcher;
   SITE_NAME: string;
-  SESSION_SECRET: string;
   /** Absolute origin used to build sign-in links. See lib/mailer.ts. */
   SITE_URL?: string;
   /** Both must be set for any email to be sent; otherwise links are copied by hand. */

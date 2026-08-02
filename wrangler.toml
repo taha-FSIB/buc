@@ -12,7 +12,10 @@ binding = "ASSETS"
 [[d1_databases]]
 binding = "DB"
 database_name = "buc_alumni"
-database_id = "PLACEHOLDER_RUN_WRANGLER_D1_CREATE"
+# Created in APAC deliberately. D1 has no read replicas on the free plan, so
+# every query is a round trip to this one region — and most of this batch is in
+# Sri Lanka. Western Europe was the default and cost roughly 100ms a query.
+database_id = "8b19ef09-99b2-4eac-a1c1-a51d045b8953"
 migrations_dir = "migrations"
 
 # Object storage: photos, audio, video, souvenir PDFs.
@@ -35,5 +38,11 @@ SITE_URL = ""
 MAIL_FROM = ""
 
 # Secrets (set with `wrangler secret put <NAME>`, never committed):
-#   SESSION_SECRET  - HMAC key for signing session cookies
 #   RESEND_API_KEY  - email provider key; without it, no email is sent
+#
+# There is deliberately no SESSION_SECRET. Sessions are not signed cookies:
+# a token is 256 bits from crypto.getRandomValues, and only its SHA-256 digest
+# is stored, so the token itself is the secret and a leaked database yields
+# hashes rather than usable sessions. This file used to ask for an HMAC key
+# that no line of code ever read — a secret that protects nothing is worse
+# than no secret, because somebody sets it and believes they are covered.
