@@ -183,8 +183,8 @@ Five pages, no session needed: **Home** (`/`), **Our Story** (`/our-story`),
 visitor, a member's own feed once they sign in. A link pasted into a WhatsApp
 group should open something worth reading, which is why the public site lives
 at the root rather than behind `/public`. The old `/public` URLs 301 to
-`/stories`, so anything already shared keeps working. `/reunion` works the
-same way: the details to a visitor, the RSVP form to a member.
+`/stories`, so anything already shared keeps working. `/reunion` and
+`/reunion/rsvp` work the same way — see below.
 
 **Nothing reaches these pages without both facts.** Every query runs through
 `publicFeed` or `getPost` with a null viewer, which resolve against
@@ -212,6 +212,73 @@ hashed IP that is never stored raw. Over the limit the page still says thank
 you: telling a flooder they have been spotted only tells them to change
 address. That does mean a genuine eleventh message would be lost, which is why
 the limit is set where no real person will reach it.
+
+---
+
+## The reunion
+
+`/reunion` is the same address twice over. A visitor gets the dates, the
+countdown, the schedule, how to get to Vantharumoolai and where to sleep. A
+member gets all of that plus their own answer, which they can change as often
+as they like right up to the day.
+
+### Answering without an account
+
+`/reunion/rsvp` is registered twice, in this order:
+
+```tsx
+reunionRoutes.get('/reunion/rsvp', async (c, next) => {
+  if (c.get('viewer')) return next();   // fall through to the member form
+  ...
+});
+reunionRoutes.get('/reunion/rsvp', requireAuth, async (c) => { ... });
+```
+
+A signed-in member falls straight through to the form that already knows who
+they are. Everyone else gets a form that asks.
+
+This exists because the committee is still tracking people down. Somebody who
+has just been found, on a borrowed phone, willing to say yes, must not be told
+to sign in first — **that is a dead end at the exact moment it costs the most.**
+
+Their answers land in `guest_rsvps`, never in `rsvps`. Flattening the two
+would be dishonest: a member's RSVP is attached to an identity the site
+trusts, while this is a claim typed by anyone on the internet. It can be a
+duplicate, it may have no address at all, and it usually wants to become an
+invitation. The headcount counts them, and says out loud that it is counting
+them separately:
+
+> **63 people expected** — 48 of the batch, plus 9 guests, plus 6 who answered
+> without an account
+
+Same spam defences as Contact: a honeypot and ten an hour per hashed IP, both
+answering with the same thank-you page.
+
+### The one write path open to the internet
+
+The public form is the only place an unauthenticated stranger writes to the
+database, so `check-visibility.mjs` treats it as a boundary and proves that a
+name, an address or a telephone number typed there appears **nowhere** except
+the admin area — not on `/reunion`, not on the form itself, not on the home
+page, and not to an ordinary signed-in member. Every admin route under
+`/admin/reunion` returns 404 to a member, including the POSTs.
+
+### Turning an answer into a member
+
+**Invite them to join** on the headcount calls the same `inviteMember` the
+Members screen uses, records which account the answer became, and closes it.
+If the address already belongs to somebody who has signed in before, it is a
+duplicate rather than a new person: the answer is closed and nothing is
+created. The sign-in link comes back on screen either way, because email may
+not be configured — see *Email is optional*.
+
+### Nothing here needs a deploy
+
+Times, rooms, travel notes and the whole schedule are editable at
+`/admin/reunion/event`. Between now and August the schedule will change
+several times, and none of that should need a developer. The seeded ten lines
+in `0008_reunion_guests.sql` are an outline, not a decision. A blank name or a
+mangled date is refused rather than saved — the public page depends on both.
 
 ---
 
@@ -399,8 +466,9 @@ npm run check:visibility -- http://127.0.0.1:8787
 uploads to R2, real routes — and asserts a full matrix of who can read what:
 five viewers plus an anonymous visitor against private, friend-shared,
 group-shared, pending, approved, rejected and draft posts, the media hanging
-off them, group covers and invitations, and every public listing. It cleans up
-after itself.
+off them, group covers and invitations, hub threads, the souvenir, the public
+reunion form, and every public listing. 121 checks, and it cleans up after
+itself.
 
 It exists because reading the SQL and nodding is not a test. It caught a real
 bug the first time it ran: an admin got a 404 on the very post they were being

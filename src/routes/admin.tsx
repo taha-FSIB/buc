@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import type { AppBindings } from '../types';
 import { Layout, ErrorNotice } from '../views/layout';
 import { requireAdmin, viewerOf } from '../lib/guard';
@@ -38,9 +39,10 @@ adminRoutes.get('/admin', requireAdmin, async (c) => {
          (SELECT COUNT(*) FROM public_submissions WHERE status = 'pending') AS posts,
          (SELECT COUNT(*) FROM flipbook_pages WHERE status = 'submitted')  AS pages,
          (SELECT COUNT(*) FROM members WHERE status = 'invited')           AS invited,
-         (SELECT COUNT(*) FROM public_messages WHERE handled_at IS NULL)   AS messages`,
+         (SELECT COUNT(*) FROM public_messages WHERE handled_at IS NULL)   AS messages,
+         (SELECT COUNT(*) FROM guest_rsvps WHERE handled_at IS NULL)       AS guests`,
     )
-    .first<{ posts: number; pages: number; invited: number; messages: number }>();
+    .first<{ posts: number; pages: number; invited: number; messages: number; guests: number }>();
 
   const waiting = counts?.posts ?? 0;
 
@@ -74,9 +76,16 @@ adminRoutes.get('/admin', requireAdmin, async (c) => {
             : `${counts?.messages} to read`}
         </p>
       </a>
+      {/* Somebody who answered the public form without an account is a person
+          waiting to be let in, not a statistic — so the number is said here
+          rather than only inside the screen they might not open. */}
       <a class="card" href="/admin/reunion">
         <h2>Who is coming to the reunion</h2>
-        <p class="card-meta">Headcount, food and access notes</p>
+        <p class="card-meta">
+          Headcount, food and access notes
+          {(counts?.guests ?? 0) > 0 &&
+            ` · ${counts?.guests} answered without an account`}
+        </p>
       </a>
       <a class="card" href="/admin/souvenir">
         <h2>Souvenir pages waiting for approval</h2>
@@ -417,7 +426,7 @@ adminRoutes.post('/admin/souvenir/:pageId', requireAdmin, async (c) => {
  * the link itself is on screen to be copied into WhatsApp — which is how most
  * of these will actually reach people.
  */
-function LinkHandout(props: {
+export function LinkHandout(props: {
   viewer: ReturnType<typeof viewerOf>;
   name: string;
   url: string;
@@ -551,16 +560,21 @@ adminRoutes.get('/admin/members', requireAdmin, async (c) => {
   );
 });
 
-adminRoutes.post('/admin/members/invite', requireAdmin, async (c) => {
-  const viewer = viewerOf(c);
-  const form = await c.req.formData();
-  const fullName = String(form.get('full_name') ?? '').trim();
-  const email = String(form.get('email') ?? '').trim().toLowerCase();
-  const yearRaw = String(form.get('batch_year') ?? '').trim();
-  const batchYear = yearRaw && Number.isInteger(Number(yearRaw)) ? Number(yearRaw) : null;
-
-  if (!fullName || !email) return c.redirect('/admin/members', 303);
-
+/**
+ * Create (or re-invite) a member and produce their link.
+ *
+ * Shared with the reunion screens, where the committee invites somebody who
+ * answered the public RSVP without having an account. Returns null when the
+ * address already belongs to somebody who has signed in before — that is not
+ * an invitation, it is a lockout, and the caller should say so.
+ */
+export async function inviteMember(
+  c: Context<AppBindings>,
+  actorId: string,
+  fullName: string,
+  email: string,
+  batchYear: number | null,
+): Promise<{ memberId: string; url: string; code: string; result: SendResult } | null> {
   const code = newInviteCode();
   let memberId = newId();
 
@@ -584,21 +598,7 @@ adminRoutes.post('/admin/members/invite', requireAdmin, async (c) => {
       .bind(code, batchYear, email)
       .first<{ id: string }>();
 
-    if (!existing) {
-      return c.html(
-        <Layout title="Members" viewer={viewer} tab="more"
-                back={{ href: '/admin/members', label: 'Members' }}>
-          <ErrorNotice title="They are already a member.">
-            <p>
-              {email} has an account and has signed in before. If they are
-              locked out, make them a sign-in link from the list instead.
-            </p>
-          </ErrorNotice>
-          <a class="btn btn-block" href="/admin/members">Back to members</a>
-        </Layout>,
-        409,
-      );
-    }
+    if (!existing) return null;
     memberId = existing.id;
   }
 
@@ -606,11 +606,42 @@ adminRoutes.post('/admin/members/invite', requireAdmin, async (c) => {
   const url = `${siteOrigin(c.env, c.req.url)}/signin/link/${token}`;
   const result = await sendInviteLink(c.env, email, fullName, url, code);
 
-  await log(c.env.DB, viewer.id, 'member_invited', 'member', memberId, email);
+  await log(c.env.DB, actorId, 'member_invited', 'member', memberId, email);
+
+  return { memberId, url, code, result };
+}
+
+adminRoutes.post('/admin/members/invite', requireAdmin, async (c) => {
+  const viewer = viewerOf(c);
+  const form = await c.req.formData();
+  const fullName = String(form.get('full_name') ?? '').trim();
+  const email = String(form.get('email') ?? '').trim().toLowerCase();
+  const yearRaw = String(form.get('batch_year') ?? '').trim();
+  const batchYear = yearRaw && Number.isInteger(Number(yearRaw)) ? Number(yearRaw) : null;
+
+  if (!fullName || !email) return c.redirect('/admin/members', 303);
+
+  const invited = await inviteMember(c, viewer.id, fullName, email, batchYear);
+
+  if (!invited) {
+    return c.html(
+      <Layout title="Members" viewer={viewer} tab="more"
+              back={{ href: '/admin/members', label: 'Members' }}>
+        <ErrorNotice title="They are already a member.">
+          <p>
+            {email} has an account and has signed in before. If they are
+            locked out, make them a sign-in link from the list instead.
+          </p>
+        </ErrorNotice>
+        <a class="btn btn-block" href="/admin/members">Back to members</a>
+      </Layout>,
+      409,
+    );
+  }
 
   return c.html(
-    <LinkHandout viewer={viewer} name={fullName} url={url} code={code}
-                 result={result} configured={emailConfigured(c.env)} />,
+    <LinkHandout viewer={viewer} name={fullName} url={invited.url} code={invited.code}
+                 result={invited.result} configured={emailConfigured(c.env)} />,
   );
 });
 

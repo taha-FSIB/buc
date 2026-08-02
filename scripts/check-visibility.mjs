@@ -98,9 +98,16 @@ function cleanup() {
        (SELECT id FROM groups WHERE id = 'vtest_group' OR name LIKE 'vtest%');`,
     "DELETE FROM groups WHERE id = 'vtest_group' OR name LIKE 'vtest%';",
     "DELETE FROM media WHERE owner_id LIKE 'vtest_%';",
+    "DELETE FROM guest_rsvps WHERE full_name LIKE 'vtest%';",
     "DELETE FROM login_links WHERE member_id LIKE 'vtest_%';",
     "DELETE FROM sessions WHERE member_id LIKE 'vtest_%';",
-    "DELETE FROM members WHERE id LIKE 'vtest_%';",
+    // An invited guest becomes a member with a generated id, so these three go
+    // by address instead. Every fixture account lives at visibility.test.
+    `DELETE FROM login_links WHERE member_id IN
+       (SELECT id FROM members WHERE email LIKE '%@visibility.test');`,
+    `DELETE FROM sessions WHERE member_id IN
+       (SELECT id FROM members WHERE email LIKE '%@visibility.test');`,
+    "DELETE FROM members WHERE id LIKE 'vtest_%' OR email LIKE '%@visibility.test';",
   ]);
 }
 
@@ -462,6 +469,117 @@ async function main() {
     await status(`/media/${souvenirPhoto}`, cookies.friend), true);
   assertReach('a souvenir photo, anonymous',
     await status(`/media/${souvenirPhoto}`, null), false);
+
+  /* -- The reunion, and answers from people who have no account ------------ */
+  // The public form is the one place on the site where an unauthenticated
+  // stranger writes to the database. It has to be open — an invitee the
+  // committee has only just tracked down must be able to say yes — so what
+  // matters is that nothing written there is readable by anyone but an admin,
+  // and that it cannot be used to flood the table.
+  console.log('\nthe reunion, to a visitor');
+  assertReach('the reunion page', await status('/reunion', null), true);
+  assertReach('the answer form', await status('/reunion/rsvp', null), true);
+
+  const guestAnswer = (fields) => fetch(`${BASE}/reunion/rsvp`, {
+    method: 'POST', redirect: 'manual',
+    body: new URLSearchParams({ answer: 'yes', ...fields }),
+  });
+
+  checks++;
+  const answered1 = await guestAnswer({
+    full_name: 'vtest Outside Guest', email: 'vtest.guest@visibility.test',
+    guests: '1', dietary: 'vtest no fish',
+  });
+  if (answered1.status === 200 && (await answered1.text()).includes('Thank you')) {
+    console.log('  ok    a visitor may answer without an account');
+  } else {
+    failures++; console.error(`  FAIL  a visitor answering got ${answered1.status}`);
+  }
+
+  console.log('\nwho can read an outside answer');
+  const headcount = await (await fetch(`${BASE}/admin/reunion`, { headers: { cookie: cookies.admin } })).text();
+  checks++;
+  if (headcount.includes('vtest Outside Guest')) console.log('  ok    the admin sees it on the headcount');
+  else { failures++; console.error('  FAIL  the admin cannot see an answer that was sent in'); }
+
+  // Names, addresses and telephone numbers typed by people who are not members
+  // must not surface anywhere outside the admin area.
+  for (const [label, path, cookie] of [
+    ['the public reunion page', '/reunion', null],
+    ['the answer form', '/reunion/rsvp', null],
+    ['the home page', '/', null],
+    ['the reunion page, to a member', '/reunion', cookies.stranger],
+  ]) {
+    checks++;
+    const body = await (await fetch(`${BASE}${path}`, { headers: cookie ? { cookie } : {} })).text();
+    if (body.includes('vtest Outside Guest') || body.includes('vtest.guest@visibility.test')) {
+      failures++; console.error(`  FAIL  an outside answer leaked onto ${label}`);
+    } else console.log(`  ok    nothing of it on ${label}`);
+  }
+
+  for (const [label, path] of [
+    ['the headcount', '/admin/reunion'],
+    ['the details editor', '/admin/reunion/event'],
+  ]) {
+    checks++;
+    const code = await status(path, cookies.stranger);
+    if (code === 404) console.log(`  ok    ${label} is not there for an ordinary member (404)`);
+    else { failures++; console.error(`  FAIL  ${label} returned ${code} to an ordinary member`); }
+  }
+
+  for (const [label, path] of [
+    ['inviting somebody', '/admin/reunion/guest/whatever/invite'],
+    ['marking one dealt with', '/admin/reunion/guest/whatever/handled'],
+    ['changing the details', '/admin/reunion/event'],
+    ['adding a line to the schedule', '/admin/reunion/schedule'],
+  ]) {
+    checks++;
+    const code = await post(path, cookies.stranger);
+    if (code === 404) console.log(`  ok    a member cannot do ${label} (404)`);
+    else { failures++; console.error(`  FAIL  ${label} returned ${code} to an ordinary member`); }
+  }
+
+  // Inviting somebody out of that list is how an answer becomes an account, so
+  // it is worth proving end to end rather than assuming the button is wired up.
+  console.log('\nturning an outside answer into a member');
+  const guestId = (headcount.match(/\/admin\/reunion\/guest\/([a-z0-9]+)\/invite/) ?? [])[1];
+  checks++;
+  if (!guestId) {
+    failures++; console.error('  FAIL  no invite button on an answer that has an address');
+  } else {
+    console.log('  ok    the answer offers an invitation');
+    const invited = await fetch(`${BASE}/admin/reunion/guest/${guestId}/invite`, {
+      method: 'POST', headers: { cookie: cookies.admin }, redirect: 'manual',
+    });
+    const handout = invited.status === 200 ? await invited.text() : '';
+
+    checks++;
+    if (handout.includes('/signin/link/')) console.log('  ok    a sign-in link comes back for them');
+    else { failures++; console.error(`  FAIL  inviting them returned ${invited.status} and no link`); }
+
+    const after = await (await fetch(`${BASE}/admin/reunion`, { headers: { cookie: cookies.admin } })).text();
+    checks++;
+    if (after.includes('now a member')) console.log('  ok    the answer is marked dealt with');
+    else { failures++; console.error('  FAIL  the answer was not closed after the invitation'); }
+  }
+
+  // The honeypot and the hourly cap both answer with the same thank-you page,
+  // so the only honest way to check them is to look at what reached the table.
+  console.log('\nwhat the open form refuses to store');
+  await guestAnswer({ full_name: 'vtest Robot', website: 'http://spam.example' });
+  for (let i = 0; i < 12; i++) await guestAnswer({ full_name: `vtest Flood ${i}` });
+  await guestAnswer({ full_name: 'vtest Over The Limit' });
+
+  const afterFlood = await (await fetch(`${BASE}/admin/reunion`, { headers: { cookie: cookies.admin } })).text();
+  checks++;
+  if (afterFlood.includes('vtest Robot')) {
+    failures++; console.error('  FAIL  a filled-in honeypot was stored anyway');
+  } else console.log('  ok    a filled-in honeypot stores nothing');
+
+  checks++;
+  if (afterFlood.includes('vtest Over The Limit')) {
+    failures++; console.error('  FAIL  the hourly cap did not stop a flood');
+  } else console.log('  ok    answers past the hourly cap are dropped');
 
   /* -- Groups: covers, invitations, and an owner taking a post out --------- */
   console.log('\ngroup covers');
