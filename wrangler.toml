@@ -3,6 +3,15 @@ main = "src/index.tsx"
 compatibility_date = "2024-12-18"
 compatibility_flags = ["nodejs_compat"]
 
+workers_dev = true
+
+# Off deliberately. Preview URLs publish every deployed version at its own
+# public address, which for a private members' site means several live origins
+# nobody is watching — and sign-in links are pinned to SITE_URL, so a member
+# who landed on one would be bounced between hostnames. Stated explicitly so
+# it is a decision rather than whatever the default happens to be.
+preview_urls = false
+
 # Static assets (CSS, icons, fonts) are served straight from the Worker.
 [assets]
 directory = "./public"
@@ -19,17 +28,40 @@ database_id = "8b19ef09-99b2-4eac-a1c1-a51d045b8953"
 migrations_dir = "migrations"
 
 # Object storage: photos, audio, video, souvenir PDFs.
-[[r2_buckets]]
-binding = "MEDIA"
-bucket_name = "buc-alumni-media"
+#
+# COMMENTED OUT, NOT DELETED. R2 must be switched on in the Cloudflare
+# dashboard before the API will create a bucket, and a Worker cannot deploy
+# with a binding to a bucket that does not exist — the whole deploy fails, not
+# just the media parts.
+#
+# To turn it back on:
+#   1. dash.cloudflare.com -> R2 -> enable (this is the payment-method step)
+#   2. npx wrangler r2 bucket create buc-alumni-media --location apac
+#   3. uncomment the three lines below
+#   4. npm run deploy
+#
+# The code handles both states: `MEDIA` is optional in types.ts and everything
+# touching it goes through `mediaEnabled()`, which also hides the upload forms
+# rather than offering something that cannot be saved.
+#
+# Note this DOES take R2 away from local development as well — wrangler reads
+# one config for both, so `wrangler dev --local` stops simulating the bucket
+# and check-visibility.mjs loses its media assertions until step 3 above. An
+# earlier version of this comment claimed otherwise; it was checked and it was
+# wrong.
+#
+# [[r2_buckets]]
+# binding = "MEDIA"
+# bucket_name = "buc-alumni-media"
 
 [vars]
 SITE_NAME = "BUC Alumni"
 
-# Absolute origin used to build sign-in links. Leave blank in development (the
-# request's own origin is used) but SET IT BEFORE GOING LIVE: without it, a
-# forged Host header could send a member a real token pointing somewhere else.
-SITE_URL = ""
+# Absolute origin used to build sign-in links. Blank falls back to the
+# request's own origin, which means a forged Host header could send a real
+# member a real sign-in token pointing at somebody else's site. Now that there
+# is a deployment, it is pinned. Change this the day a custom domain is added.
+SITE_URL = "https://buc-alumni-portal.buc-alumni-portal.workers.dev"
 
 # From address for sign-in and invitation emails, e.g.
 #   MAIL_FROM = "BUC Alumni <hello@bucpioneers.org>"

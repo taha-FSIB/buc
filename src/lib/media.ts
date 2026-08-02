@@ -67,16 +67,35 @@ export interface StoredMedia {
 export class UploadError extends Error {}
 
 /**
+ * Is file storage available at all?
+ *
+ * False on a deployment where R2 has not been switched on. Callers use this to
+ * stop OFFERING to take a photograph, which matters more than handling the
+ * failure: a form that accepts a file and then refuses it wastes an upload
+ * over mobile data and reads as the site being broken.
+ */
+export function mediaEnabled(env: { MEDIA?: R2Bucket }): boolean {
+  return Boolean(env.MEDIA);
+}
+
+/** What to say when somebody reaches an upload anyway. */
+export const MEDIA_OFF =
+  'Photographs and recordings are switched off on this site at the moment. '
+  + 'Your words are safe — everything else works as usual.';
+
+/**
  * Store one uploaded file in R2 and record it in D1.
  * `postId` may be null for media attached to a souvenir page instead.
  */
 export async function storeUpload(
-  env: { DB: D1Database; MEDIA: R2Bucket },
+  env: { DB: D1Database; MEDIA?: R2Bucket },
   file: File,
   ownerId: string,
   postId: string | null,
   altText: string | null,
 ): Promise<StoredMedia> {
+  if (!env.MEDIA) throw new UploadError(MEDIA_OFF);
+
   const spec = ALLOWED[file.type];
   if (!spec) {
     throw new UploadError(
@@ -122,10 +141,12 @@ export async function storeUpload(
 
 /** Delete both the R2 object and its row. */
 export async function deleteMedia(
-  env: { DB: D1Database; MEDIA: R2Bucket },
+  env: { DB: D1Database; MEDIA?: R2Bucket },
   mediaId: string,
   ownerId: string,
 ): Promise<void> {
+  if (!env.MEDIA) return;
+
   const row = await env.DB
     .prepare('SELECT r2_key FROM media WHERE id = ?1 AND owner_id = ?2')
     .bind(mediaId, ownerId)

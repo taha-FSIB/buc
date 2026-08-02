@@ -448,7 +448,7 @@ hubRoutes.post('/talk/thread/:id/delete', requireAuth, async (c) => {
     .prepare('SELECT r2_key FROM media WHERE post_id = ?1')
     .bind(id)
     .all<{ r2_key: string }>();
-  await Promise.all(results.map((m) => c.env.MEDIA.delete(m.r2_key)));
+  if (c.env.MEDIA) await Promise.all(results.map((m) => c.env.MEDIA!.delete(m.r2_key)));
 
   await c.env.DB.prepare('DELETE FROM posts WHERE id = ?1').bind(id).run();
 

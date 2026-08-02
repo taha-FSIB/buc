@@ -2,7 +2,13 @@ import type { Viewer } from './lib/auth';
 
 export interface Env {
   DB: D1Database;
-  MEDIA: R2Bucket;
+  /**
+   * Optional on purpose. R2 has to be enabled on the Cloudflare account before
+   * a bucket can exist, so a deployment without it is a real state this app
+   * has to survive rather than crash in. Everything that touches it goes
+   * through `mediaEnabled` first — see lib/media.ts.
+   */
+  MEDIA?: R2Bucket;
   ASSETS: Fetcher;
   SITE_NAME: string;
   /** Absolute origin used to build sign-in links. See lib/mailer.ts. */

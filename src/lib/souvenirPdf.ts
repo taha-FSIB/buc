@@ -237,9 +237,9 @@ async function loadFonts(
 }
 
 async function embed(
-  pdf: PDFDocument, bucket: R2Bucket, key: string | null,
+  pdf: PDFDocument, bucket: R2Bucket | undefined, key: string | null,
 ): Promise<PDFImage | null> {
-  if (!key) return null;
+  if (!key || !bucket) return null;
   let object: R2ObjectBody | null = null;
   try {
     object = await bucket.get(key);
@@ -264,7 +264,7 @@ async function embed(
 
 export async function buildSouvenirPdf(
   pages: SouvenirPage[],
-  bucket: R2Bucket,
+  bucket: R2Bucket | undefined,
   title = 'BUC Pioneer Batch — Reunion Souvenir',
   assets?: Fetcher,
 ): Promise<Uint8Array> {

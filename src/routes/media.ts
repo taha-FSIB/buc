@@ -28,6 +28,9 @@ mediaRoutes.get('/media/:id', async (c) => {
   // private item exists.
   if (!allowed) return c.notFound();
 
+  // No bucket on this deployment: the row may exist, the bytes cannot.
+  if (!c.env.MEDIA) return c.notFound();
+
   const range = c.req.header('range');
   const object = await c.env.MEDIA.get(allowed.r2_key, range ? { range: c.req.raw.headers } : undefined);
   if (!object) return c.notFound();

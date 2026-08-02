@@ -8,7 +8,9 @@ import {
 } from '../views/icons';
 import { requireAuth, viewerOf } from '../lib/guard';
 import { vaultForMember, submitForPublic } from '../lib/visibility';
-import { storeUpload, kindOf, UploadError, MAX_BYTES_BY_KIND } from '../lib/media';
+import {
+  storeUpload, kindOf, UploadError, MAX_BYTES_BY_KIND, mediaEnabled,
+} from '../lib/media';
 import { newId } from '../lib/ids';
 
 // requireAuth is attached per route, never via use('*'): these routers are all
@@ -187,7 +189,20 @@ vaultRoutes.get('/vault/new', requireAuth, (c) => {
         What would you like to put in your vault? Whatever you choose, nobody
         else sees it until you say so.
       </p>
-      {(Object.keys(KINDS) as KindKey[]).map((key) => {
+
+      {/* Offering a choice that cannot be saved is worse than not offering it:
+          the member picks a photograph, waits through an upload on mobile
+          data, and is then told no. */}
+      {!mediaEnabled(c.env) && (
+        <div class="notice">
+          <strong>Photographs and recordings are switched off just now.</strong>
+          <p>Written memories work as usual. The rest will be back shortly.</p>
+        </div>
+      )}
+
+      {(Object.keys(KINDS) as KindKey[])
+        .filter((key) => mediaEnabled(c.env) || !KINDS[key].fileLabel)
+        .map((key) => {
         const k = KINDS[key];
         return (
           <a class="card card-choice" href={`/vault/new/${key}`}>
@@ -359,6 +374,8 @@ vaultRoutes.get('/vault/new/:kind', requireAuth, async (c) => {
   const viewer = viewerOf(c);
   const kind = c.req.param('kind');
   if (!isKind(kind)) return c.notFound();
+  // Reachable by typing the address, or from a stale bookmark.
+  if (KINDS[kind].fileLabel && !mediaEnabled(c.env)) return c.redirect('/vault/new', 303);
 
   const { results: groups } = await groupsFor(c.env.DB, viewer.id);
   return c.html(<ComposeForm viewer={viewer} kind={kind} groups={groups} />);
@@ -558,7 +575,7 @@ vaultRoutes.post('/post/:id/delete', requireAuth, async (c) => {
     .prepare('SELECT r2_key FROM media WHERE post_id = ?1')
     .bind(id)
     .all<{ r2_key: string }>();
-  await Promise.all(results.map((m) => c.env.MEDIA.delete(m.r2_key)));
+  if (c.env.MEDIA) await Promise.all(results.map((m) => c.env.MEDIA!.delete(m.r2_key)));
 
   await c.env.DB.prepare('DELETE FROM posts WHERE id = ?1').bind(id).run();
   return c.redirect('/vault', 303);

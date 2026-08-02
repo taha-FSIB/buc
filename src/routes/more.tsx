@@ -7,7 +7,7 @@ import {
 import { requireAuth, viewerOf } from '../lib/guard';
 import { hashPassphrase } from '../lib/auth';
 import { postsByAuthorFor } from '../lib/visibility';
-import { storeUpload, deleteMedia, UploadError } from '../lib/media';
+import { storeUpload, deleteMedia, UploadError, mediaEnabled } from '../lib/media';
 
 export const moreRoutes = new Hono<AppBindings>();
 
@@ -385,6 +385,7 @@ moreRoutes.get('/members/:id', requireAuth, async (c) => {
 function ProfilePage(props: {
   viewer: ReturnType<typeof viewerOf>;
   me: ProfileRow;
+  photos?: boolean;
   welcome?: boolean;
   error?: string;
   saved?: boolean;
@@ -455,6 +456,7 @@ function ProfilePage(props: {
           <textarea id="bio" name="bio" rows={6}>{me.bio ?? ''}</textarea>
         </div>
 
+        {props.photos !== false && (
         <div class="field">
           <label for="photo">Your photograph</label>
           <span class="hint">
@@ -474,6 +476,7 @@ function ProfilePage(props: {
             </label>
           )}
         </div>
+        )}
 
         <h2 class="section-title">How the batch can reach you</h2>
         <p class="page-intro">
@@ -548,7 +551,7 @@ moreRoutes.get('/profile', requireAuth, async (c) => {
   if (!me) return c.notFound();
 
   return c.html(
-    <ProfilePage viewer={viewer} me={me}
+    <ProfilePage viewer={viewer} me={me} photos={mediaEnabled(c.env)}
                  welcome={c.req.query('welcome') === '1'}
                  saved={c.req.query('saved') === '1'} />,
   );
@@ -571,7 +574,8 @@ moreRoutes.post('/profile', requireAuth, async (c) => {
   const showPhone = form.get('show_phone') === '1' ? 1 : 0;
 
   const fail = (error: string) =>
-    c.html(<ProfilePage viewer={viewer} me={me} error={error} />, 400);
+    c.html(<ProfilePage viewer={viewer} me={me} error={error}
+                        photos={mediaEnabled(c.env)} />, 400);
 
   if (!fullName) return fail('Please give us your full name.');
   if (!email) return fail('Please give us an email address — it is how you sign in.');
@@ -654,7 +658,7 @@ moreRoutes.post('/profile/passphrase', requireAuth, async (c) => {
 
   if (passphrase.length < MIN_PASSPHRASE) {
     return c.html(
-      <ProfilePage viewer={viewer} me={me}
+      <ProfilePage viewer={viewer} me={me} photos={mediaEnabled(c.env)}
                    error={`A passphrase needs at least ${MIN_PASSPHRASE} characters.`} />,
       400,
     );
