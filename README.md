@@ -400,6 +400,9 @@ Three details are deliberate:
 A **passphrase is optional**, offered on the profile page for anyone whose
 email is unreliable. It is a fallback, never the front door.
 
+A **first** sign-in lands on `/hello` rather than on the feed — see
+*Arriving for the first time*. Every later one goes straight in.
+
 Every sign-in form answers identically whether or not the address belongs to a
 member, so it can never be used to find out who is in the batch. Members are
 limited to three links an hour, so nobody can use the form to flood a friend's
@@ -415,6 +418,55 @@ site, and given where this batch actually talks, possibly the better one.
 
 Swapping Resend for another provider means changing `deliver()` in
 `src/lib/mailer.ts` and nothing else.
+
+### Arriving for the first time
+
+A member's first sign-in goes to `/hello`: two screens saying what Talk, My
+Vault and Groups are, and who can see what. Then it offers the profile form and
+gets out of the way. Both screens have a "skip" that goes straight to the feed.
+
+It is **not** a dismissible tour with a "don't show me this again" box. Somebody
+who taps past it on the bus needs to find it again, so it stays permanently at
+*More → How this site works*, and there is no seen-it column in the database to
+go wrong. The only thing keyed off first-time status is where the sign-in
+redirect points.
+
+The wording is doing real work. Members arrive from a WhatsApp link sent by a
+classmate, with no idea what a "vault" is meant to be; without this they landed
+on an empty feed and a bottom bar of five unexplained words.
+
+---
+
+## On a phone, and at 70
+
+Mobile-first here is not a layout preference — it is the only device most of
+this batch will ever open the site on, at arm's length, in daylight.
+
+The fixed decisions: **19px base type** (16px is the floor, not the target), a
+**52px minimum tap target**, WCAG **AAA** contrast, and one column everywhere.
+Warm cream rather than white, because white is punishing in sunlight.
+
+None of that is worth much as an assertion, so it is measured. `/hello` aside,
+the pass that produced this section drove every page in a 360px and a 320px
+viewport and checked three things mechanically:
+
+- **Nothing overflows sideways.** A page that scrolls left and right is close
+  to unusable one-handed. `overflow-wrap: break-word` catches the real culprit,
+  which is a long email address or a pasted link with no spaces in it.
+- **Nothing tappable is under 44px.** This caught the brand link in the header
+  (39px) and, more seriously, every `input[type=number]`, `[type=date]` and
+  `[type=url]` on the site: the stylesheet listed input types by hand and had
+  never been told about those three, so they fell through to the browser
+  default of 21px tall with 13px type. That is under the 16px line at which
+  **iOS zooms the whole page in on focus**, which then strands somebody on a
+  page whose edges they cannot see. It affected the year-you-finished box on
+  every member's profile and the whole reunion schedule editor.
+- **Every piece of text clears AAA** — 7:1, or 4.5:1 when it is large. 27 pages,
+  zero failures.
+
+The tab bar drops a type size below 22.5rem so five labels never wrap and shove
+it taller. Checkboxes and radios are 30px inside a 52px row that is *entirely*
+clickable, because a 20px box is not something to ask an unsteady hand to hit.
 
 ---
 
@@ -455,6 +507,13 @@ Every read path goes through `src/lib/visibility.ts`. **Do not hand-write
 `SELECT … FROM posts` anywhere else** — the rule is only as strong as the
 number of places it is written down, and that number should stay at one.
 
+It did not stay at one. The list of somebody's memories on their profile page
+was a second copy living in `more.tsx`, correct when written and then quietly
+stale: it never learned about the `batch` audience the hub introduced. That
+particular staleness was harmless, which is exactly the argument for deleting
+it — the next one might not be. It is now `postsByAuthorFor`, and the profile
+page is covered by its own checks so it cannot drift back.
+
 ### Proving it
 
 ```bash
@@ -466,9 +525,17 @@ npm run check:visibility -- http://127.0.0.1:8787
 uploads to R2, real routes — and asserts a full matrix of who can read what:
 five viewers plus an anonymous visitor against private, friend-shared,
 group-shared, pending, approved, rejected and draft posts, the media hanging
-off them, group covers and invitations, hub threads, the souvenir, the public
-reunion form, and every public listing. 121 checks, and it cleans up after
-itself.
+off them, group covers and invitations, hub threads, the souvenir, profile
+pages, suspension, the public reunion form, and every public listing. 136
+checks, and it cleans up after itself.
+
+Two of those are worth calling out because they are the checks that would fail
+loudest if somebody got clever later: **suspension has to bite on the very next
+request** — a 60-day session cookie makes it useless otherwise, and suspending
+an account is the only tool the committee has if one is taken over — and
+**nothing typed into the public reunion form appears anywhere but the admin
+area**, that being the one place on the site where an unauthenticated stranger
+writes to the database.
 
 It exists because reading the SQL and nodding is not a test. It caught a real
 bug the first time it ran: an admin got a 404 on the very post they were being
@@ -543,6 +610,14 @@ batch actually is. From **Admin → Members**, an admin can:
   Lasts a day, works once, and drops all of that member's other sessions.
 
 No mail server has to be working for either of these. That was the point.
+
+**Suspending an account is the opposite door, and it has to shut completely.**
+`resolveSession` refuses a suspended member on every request, so a live 60-day
+cookie dies immediately. The reset form used to be the exception: it looked up
+a code without checking status and then set `status = 'active'` outright, so
+somebody suspended after a code was issued could let themselves back in with
+it. It now refuses suspended accounts, and only ever promotes `invited` →
+`active`. Setting a passphrase is not a way to change your own status.
 
 ---
 

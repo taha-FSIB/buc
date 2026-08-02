@@ -180,9 +180,9 @@ authRoutes.post('/signin/link/:token', async (c) => {
   );
   c.header('Set-Cookie', sessionCookie(token));
 
-  // A first sign-in lands on the profile, where the batch will actually
-  // recognise them. Everyone else goes straight to their own front page.
-  return c.redirect(result.firstSignIn ? '/profile?welcome=1' : '/', 303);
+  // A first sign-in is walked through what the place is before being asked for
+  // anything. Everyone else goes straight to their own front page.
+  return c.redirect(result.firstSignIn ? '/hello' : '/', 303);
 });
 
 /* -- Passphrase, for anyone whose email is unreliable ----------------------- */
@@ -323,7 +323,7 @@ authRoutes.post('/join', async (c) => {
 
   const token = await createSession(c.env.DB, member.id, c.req.header('user-agent') ?? null);
   c.header('Set-Cookie', sessionCookie(token));
-  return c.redirect('/profile?welcome=1', 303);
+  return c.redirect('/hello', 303);
 });
 
 /* -- Forgotten passphrase (admin-assisted, no email provider needed) -------- */
@@ -391,7 +391,7 @@ authRoutes.post('/forgot', async (c) => {
 
   const row = await c.env.DB
     .prepare(
-      `SELECT lc.id, lc.member_id
+      `SELECT lc.id, lc.member_id, m.status
          FROM login_codes lc
          JOIN members m ON m.id = lc.member_id
         WHERE m.email = ?1
@@ -399,10 +399,14 @@ authRoutes.post('/forgot', async (c) => {
           AND lc.purpose = 'reset'
           AND lc.consumed_at IS NULL
           AND lc.expires_at > unixepoch()
+          -- A suspended member must not be able to let themselves back in with
+          -- a code that was issued before they were suspended. Every other
+          -- door checks this; this one was the exception.
+          AND m.status != 'suspended'
         LIMIT 1`,
     )
     .bind(email, await hashLoginCode(code))
-    .first<{ id: string; member_id: string }>();
+    .first<{ id: string; member_id: string; status: string }>();
 
   if (!row) {
     return fail('It may have expired, or already been used. Ask on WhatsApp for a fresh one.');
@@ -411,8 +415,12 @@ authRoutes.post('/forgot', async (c) => {
   await c.env.DB.batch([
     c.env.DB
       .prepare(
-        `UPDATE members SET passphrase_hash = ?1, status = 'active',
-                            updated_at = unixepoch()
+        // Setting a passphrase promotes somebody who was still 'invited', and
+        // changes nothing for anyone else. It is not a way to change status.
+        `UPDATE members
+            SET passphrase_hash = ?1,
+                status = CASE WHEN status = 'invited' THEN 'active' ELSE status END,
+                updated_at = unixepoch()
           WHERE id = ?2`,
       )
       .bind(await hashPassphrase(passphrase), row.member_id),

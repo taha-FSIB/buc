@@ -235,7 +235,7 @@ const VISIBILITY_CHOICES = [
     value: 'public',
     Icon: GlobeIcon,
     label: 'Offer it to the public pages',
-    hint: 'An admin reads it first. Nothing goes public without that.',
+    hint: 'One of the committee reads it first. Nothing goes public without that.',
   },
 ] as const;
 
@@ -276,9 +276,10 @@ const ComposeForm: FC<{
         <div class="field">
           <label for="body">{k.bodyLabel}</label>
           <span class="hint">{k.bodyHint}</span>
-          <textarea id="body" name="body" required={kind === 'story'}>
-            {values?.body ?? ''}
-          </textarea>
+          {/* On one line on purpose. A textarea keeps every space between its
+              tags, so pretty-printing this would hand the member their own
+              words back indented by twelve spaces after a validation error. */}
+          <textarea id="body" name="body" required={kind === 'story'}>{values?.body ?? ''}</textarea>
         </div>
 
         {kind === 'photo' && (

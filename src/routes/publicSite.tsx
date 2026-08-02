@@ -309,9 +309,8 @@ const ContactPage = (props: {
           </div>
           <div class="field">
             <label for="body">What would you like to say?</label>
-            <textarea id="body" name="body" maxlength={MAX_MESSAGE} required>
-              {props.values?.body ?? ''}
-            </textarea>
+            {/* One line: a textarea preserves the whitespace between its tags. */}
+            <textarea id="body" name="body" maxlength={MAX_MESSAGE} required>{props.values?.body ?? ''}</textarea>
           </div>
 
           {/* Left empty by people, filled in by bots. Hidden from assistive

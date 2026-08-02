@@ -1,8 +1,12 @@
 import { Hono } from 'hono';
 import type { AppBindings } from '../types';
 import { Layout, ErrorNotice } from '../views/layout';
+import {
+  TalkIcon, VaultIcon, GroupsIcon, LockIcon, GlobeIcon, PersonIcon,
+} from '../views/icons';
 import { requireAuth, viewerOf } from '../lib/guard';
 import { hashPassphrase } from '../lib/auth';
+import { postsByAuthorFor } from '../lib/visibility';
 import { storeUpload, deleteMedia, UploadError } from '../lib/media';
 
 export const moreRoutes = new Hono<AppBindings>();
@@ -69,6 +73,11 @@ moreRoutes.get('/more', requireAuth, (c) => {
         <h2>Our public pages</h2>
         <p class="card-meta">What the wider world can see</p>
       </a>
+      {/* Anybody who tapped past this on their first day can find it here. */}
+      <a class="card" href="/hello">
+        <h2>How this site works</h2>
+        <p class="card-meta">The three places, and who can see what</p>
+      </a>
 
       {viewer.role === 'admin' && (
         <a class="card" href="/admin">
@@ -80,6 +89,131 @@ moreRoutes.get('/more', requireAuth, (c) => {
       <form method="post" action="/signout" style="margin-top:2rem">
         <button class="btn btn-secondary btn-block" type="submit">Sign out</button>
       </form>
+    </Layout>,
+  );
+});
+
+/* -- What this place is ---------------------------------------------------- */
+/*
+ * Two screens, shown once on the way in and reachable forever afterwards from
+ * More. Members arriving here have been sent a link over WhatsApp by a
+ * classmate and have no idea what a "vault" is meant to be; without this they
+ * land on an empty feed and a bottom bar of five words.
+ *
+ * It is deliberately not a dismissible tour with a "don't show me again" box.
+ * Somebody who taps past it on the bus needs to be able to find it again, and
+ * a checkbox in the database is one more thing to be wrong.
+ */
+moreRoutes.get('/hello', requireAuth, (c) => {
+  const viewer = viewerOf(c);
+  return c.html(
+    <Layout title="How this works" viewer={viewer}>
+      <h1>Welcome in, {viewer.preferred_name ?? viewer.full_name}</h1>
+      <p class="page-intro">
+        There are three places here worth knowing about. That is the whole of
+        it — the rest you will find on your own.
+      </p>
+
+      <div class="card card-choice">
+        <TalkIcon />
+        <span>
+          <h2>Talk</h2>
+          <span class="card-meta">
+            Like the WhatsApp group, except nothing scrolls away. Four rooms —
+            general talk, projects, odds and ends, and photographs. Everyone
+            who has joined can read them.
+          </span>
+        </span>
+      </div>
+
+      <div class="card card-choice">
+        <VaultIcon />
+        <span>
+          <h2>My Vault</h2>
+          <span class="card-meta">
+            Your own shelf. Photographs, stories, a recording of your voice if
+            you like. <strong>Nobody sees anything in it until you say so</strong>
+            {' '}— not other members, not the committee, nobody.
+          </span>
+        </span>
+      </div>
+
+      <div class="card card-choice">
+        <GroupsIcon />
+        <span>
+          <h2>Groups</h2>
+          <span class="card-meta">
+            Smaller corners — the people you shared a hostel with, the ones
+            still in Batticaloa, whoever is running the scholarship fund. Join
+            one, or start your own.
+          </span>
+        </span>
+      </div>
+
+      <a class="btn btn-block" href="/hello/2" style="margin-top:var(--space-md)">
+        Next
+      </a>
+      <p style="margin-top:1rem">
+        <a class="back" href="/">Skip this — take me in</a>
+      </p>
+    </Layout>,
+  );
+});
+
+moreRoutes.get('/hello/2', requireAuth, (c) => {
+  const viewer = viewerOf(c);
+  return c.html(
+    <Layout title="How this works" viewer={viewer}
+            back={{ href: '/hello', label: 'Back' }}>
+      <h1>Who sees what</h1>
+      <p class="page-intro">
+        This is the part we would most like you to trust, so here it is plainly.
+      </p>
+
+      <div class="card card-choice">
+        <LockIcon />
+        <span>
+          <h2>Nothing is shared by accident</h2>
+          <span class="card-meta">
+            Everything you add starts private. Each time, you choose: keep it
+            to yourself, send it to friends by name, put it in one of your
+            groups, or offer it to the public pages.
+          </span>
+        </span>
+      </div>
+
+      <div class="card card-choice">
+        <GlobeIcon />
+        <span>
+          <h2>The public pages are read first</h2>
+          <span class="card-meta">
+            Only what you offer to them, and only after one of the committee
+            has read it. Nothing else on this site can be seen from outside.
+          </span>
+        </span>
+      </div>
+
+      <div class="card card-choice">
+        <PersonIcon />
+        <span>
+          <h2>You can change your mind</h2>
+          <span class="card-meta">
+            Shared something with the wrong person, or thought better of it?
+            Open it and tap <strong>Stop sharing</strong>. It goes back to
+            being yours alone.
+          </span>
+        </span>
+      </div>
+
+      <p class="page-intro" style="margin-top:var(--space-lg)">
+        One last thing, and then you are done: a photograph and a line about
+        where you ended up. Forty-five years is a long time, and it helps
+        people place you.
+      </p>
+      <a class="btn btn-block" href="/profile?welcome=1">Add my details</a>
+      <p style="margin-top:1rem">
+        <a class="back" href="/">Not now — take me in</a>
+      </p>
     </Layout>,
   );
 });
@@ -151,28 +285,9 @@ moreRoutes.get('/members/:id', requireAuth, async (c) => {
     .bind(id)
     .first<{ heading: string | null; blurb: string | null; then_media_id: string | null; now_media_id: string | null }>();
 
-  // Only what this member has actually shared with the viewer.
-  const { results: posts } = await c.env.DB
-    .prepare(
-      `SELECT p.id, p.title
-         FROM posts p
-         JOIN post_shares s ON s.post_id = p.id
-    LEFT JOIN group_members g
-           ON g.group_id = s.audience_id AND g.member_id = ?1 AND g.state = 'active'
-    LEFT JOIN public_submissions sub ON sub.post_id = p.id
-        WHERE p.author_id = ?2
-          AND p.state = 'posted'
-          AND (
-            (s.audience_kind = 'member' AND s.audience_id = ?1)
-            OR (s.audience_kind = 'group'  AND g.member_id IS NOT NULL)
-            OR (s.audience_kind = 'public' AND sub.status = 'approved')
-          )
-        GROUP BY p.id
-        ORDER BY p.created_at DESC
-        LIMIT 20`,
-    )
-    .bind(viewer.id, id)
-    .all<{ id: string; title: string | null }>();
+  // Only what this member has actually shared with the viewer. The rule lives
+  // in visibility.ts and nowhere else — see postsByAuthorFor.
+  const { results: posts } = await postsByAuthorFor(c.env.DB, viewer.id, id);
 
   const name = member.preferred_name ?? member.full_name;
   // A member's own details are always their own to see, whatever the switches say.
@@ -201,13 +316,15 @@ moreRoutes.get('/members/:id', requireAuth, async (c) => {
       {(showEmail || showPhone) && (
         <div class="card">
           <h2>Getting in touch</h2>
+          {/* These two are the whole point of the card, so they get a real
+              target rather than the 18px an inline link happens to occupy. */}
           {showEmail && (
-            <p style="margin:0.35rem 0">
+            <p class="contact-line">
               <a href={`mailto:${member.email}`}>{member.email}</a>
             </p>
           )}
           {showPhone && member.phone && (
-            <p style="margin:0.35rem 0">
+            <p class="contact-line">
               <a href={`tel:${member.phone.replace(/[^+\d]/g, '')}`}>{member.phone}</a>
             </p>
           )}
@@ -239,11 +356,20 @@ moreRoutes.get('/members/:id', requireAuth, async (c) => {
         </article>
       )}
 
-      <h2 class="section-title">Shared with you</h2>
+      {/* Reading your own name back at you — "Kamala has not shared anything
+          with you yet" — is the sort of thing that makes a site feel like it
+          is not paying attention. */}
+      <h2 class="section-title">{isSelf ? 'Your memories' : 'Shared with you'}</h2>
       {posts.length === 0 ? (
-        <p class="page-intro">
-          {name} has not shared anything with you yet.
-        </p>
+        isSelf ? (
+          <div class="empty">
+            <h3>Nothing in your vault yet</h3>
+            <p>This is what the batch will see when they open your name.</p>
+            <a class="btn" href="/vault/new">Add your first memory</a>
+          </div>
+        ) : (
+          <p class="page-intro">{name} has not shared anything with you yet.</p>
+        )
       ) : (
         posts.map((p) => (
           <a class="card" href={`/post/${p.id}`}>
@@ -295,7 +421,7 @@ function ProfilePage(props: {
       <form method="post" action="/profile" enctype="multipart/form-data">
         <div class="field">
           <label for="full_name">Your full name</label>
-          <input id="full_name" name="full_name" type="text"
+          <input id="full_name" name="full_name" type="text" autocomplete="name"
                  value={me.full_name} required />
         </div>
 
@@ -317,7 +443,7 @@ function ProfilePage(props: {
         <div class="field">
           <label for="location">Where you are now</label>
           <span class="hint">Town and country, for example Scarborough, Canada.</span>
-          <input id="location" name="location" type="text"
+          <input id="location" name="location" type="text" autocomplete="address-level2"
                  value={me.location ?? ''} />
         </div>
 
@@ -357,7 +483,9 @@ function ProfilePage(props: {
         <div class="field">
           <label for="email">Your email</label>
           <span class="hint">You sign in with this.</span>
-          <input id="email" name="email" type="email" value={me.email} required />
+          <input id="email" name="email" type="email" autocomplete="email"
+                 inputmode="email" autocapitalize="off" spellcheck={false}
+                 value={me.email} required />
         </div>
         <label class="check">
           <input type="checkbox" name="show_email" value="1"
@@ -367,7 +495,8 @@ function ProfilePage(props: {
 
         <div class="field" style="margin-top:var(--space-md)">
           <label for="phone">Your WhatsApp number</label>
-          <input id="phone" name="phone" type="tel" value={me.phone ?? ''} />
+          <input id="phone" name="phone" type="tel" autocomplete="tel"
+                 value={me.phone ?? ''} />
         </div>
         <label class="check">
           <input type="checkbox" name="show_phone" value="1"
@@ -446,6 +575,22 @@ moreRoutes.post('/profile', requireAuth, async (c) => {
 
   if (!fullName) return fail('Please give us your full name.');
   if (!email) return fail('Please give us an email address — it is how you sign in.');
+
+  // Addresses are unique in the database, so without this check a member who
+  // types a spouse's or a friend's address by mistake gets "something went
+  // wrong at our end" — which is both untrue and no help at all.
+  if (email !== me.email) {
+    const taken = await c.env.DB
+      .prepare('SELECT 1 FROM members WHERE email = ?1 AND id != ?2')
+      .bind(email, viewer.id)
+      .first();
+    if (taken) {
+      return fail(
+        'Somebody in the batch already uses that address. If it is yours as '
+        + 'well, ask on WhatsApp and one of the committee will sort it out.',
+      );
+    }
+  }
 
   const yearRaw = String(form.get('batch_year') ?? '').trim();
   let batchYear: number | null = null;

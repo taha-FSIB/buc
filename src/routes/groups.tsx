@@ -193,9 +193,8 @@ const GroupForm: FC<{
         <div class="field">
           <label for="description">What is it for?</label>
           <span class="hint">A sentence is plenty.</span>
-          <textarea id="description" name="description" style="min-height:6rem">
-            {group?.description ?? ''}
-          </textarea>
+          {/* One line: a textarea preserves the whitespace between its tags. */}
+          <textarea id="description" name="description" style="min-height:6rem">{group?.description ?? ''}</textarea>
         </div>
 
         <div class="field">

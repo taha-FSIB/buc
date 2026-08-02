@@ -139,7 +139,7 @@ souvenirRoutes.get('/souvenir/mine', requireAuth, async (c) => {
       {page?.status === 'submitted' && (
         <div class="notice">
           <strong>Your page has been sent in.</strong>
-          <p>An admin will look at it before it goes into the souvenir.</p>
+          <p>One of the committee will look at it before it goes into the book.</p>
         </div>
       )}
       {page?.status === 'approved' && (

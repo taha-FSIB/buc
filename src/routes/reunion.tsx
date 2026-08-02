@@ -395,14 +395,16 @@ reunionRoutes.get('/reunion/rsvp', requireAuth, async (c) => {
       </p>
 
       <form method="post" action="/reunion/rsvp">
-        <fieldset style="border:0;padding:0;margin:0 0 1.5rem">
-          <legend style="font-weight:700;margin-bottom:0.5rem">Your answer</legend>
+        {/* The shared choice classes, not a hand-rolled copy: this form was
+            written before .choices existed and kept 26px radios while every
+            other choice on the site moved to 30. */}
+        <fieldset class="choices">
+          <legend>Your answer</legend>
           {ANSWERS.map((a) => (
-            <label style="display:flex;align-items:center;gap:0.7rem;min-height:52px;font-weight:400">
+            <label class="check">
               <input type="radio" name="answer" value={a.code}
-                     checked={(rsvp?.answer ?? 'yes') === a.code}
-                     style="width:26px;height:26px;min-height:26px;flex:none" />
-              {a.label}
+                     checked={(rsvp?.answer ?? 'yes') === a.code} />
+              <span>{a.label}</span>
             </label>
           ))}
         </fieldset>

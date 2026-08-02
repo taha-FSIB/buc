@@ -52,7 +52,18 @@ body {
   font-size: 19px;          /* 16px is the floor, not the target */
   line-height: 1.6;
   letter-spacing: 0;        /* never negative — it costs legibility */
+
+  /*
+   * An email address, a place name or a pasted link has no spaces in it and
+   * will happily push a 320px screen sideways. A page that scrolls left and
+   * right is close to unusable for someone reading it at arm's length on a
+   * phone, so long runs of characters wrap instead.
+   */
+  overflow-wrap: break-word;
 }
+
+/* Nothing may ever push the page sideways, whatever slips through above. */
+html, body { overflow-x: hidden; }
 
 /* --- Skip link ---------------------------------------------------------- */
 
@@ -97,7 +108,13 @@ main { padding-bottom: calc(var(--tabbar-h) + var(--space-lg)); }
   gap: 1rem;
 }
 
+/* Also the "take me home" control, so it gets a real target like everything
+   else rather than the 39px its two lines of text happened to occupy. */
 .brand {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: var(--tap);
   font-size: 1.3rem;
   font-weight: 700;
   color: var(--ink);
@@ -167,6 +184,19 @@ main { padding-bottom: calc(var(--tabbar-h) + var(--space-lg)); }
 }
 
 .tabbar svg { width: 25px; height: 25px; }
+
+/*
+ * Five labels across a small phone. On anything narrower than about 360px
+ * — an iPhone SE, and a good number of the older Android handsets this batch
+ * actually owns — "Our Story" and "My Vault" wrap and shove the bar taller.
+ * The type comes down a notch rather than the words being cut, because a
+ * truncated label is worse than a small one. The 52px tap target is untouched.
+ */
+@media (max-width: 22.5rem) {
+  .tabbar a { font-size: 0.68rem; padding: 0.4rem 0.1rem; }
+  .tabbar svg { width: 22px; height: 22px; }
+  .wrap { padding: 0 0.85rem; }
+}
 
 /* --- Typography --------------------------------------------------------- */
 
@@ -294,8 +324,24 @@ a.card:hover { border-color: var(--accent); }
   color: var(--accent-dark);
 }
 
+/*
+ * Every text-entry type, listed out.
+ *
+ * This selector used to name only text/email/password/tel, which meant the
+ * year-you-finished box on a member's profile, the "anyone coming with you"
+ * box on the reunion form and every date on the schedule editor fell through
+ * to the browser default: 21px tall with 13px type. Too small to hit, and
+ * under the 16px line at which iOS zooms the whole page in on focus — which
+ * then strands somebody on a page they cannot see the edges of.
+ *
+ * New input types are rare enough to add by hand, and a blanket `input`
+ * selector would catch checkboxes, radios and file pickers that want none of
+ * this.
+ */
 input[type="text"], input[type="email"], input[type="password"],
-input[type="tel"], textarea, select {
+input[type="tel"], input[type="number"], input[type="date"],
+input[type="url"], input[type="search"], input[type="datetime-local"],
+textarea, select {
   width: 100%;
   min-height: var(--tap);
   padding: 0.7rem 0.85rem;
@@ -502,6 +548,22 @@ textarea { min-height: 9rem; resize: vertical; line-height: 1.6; }
   box-shadow: inset 0 0 0 1px var(--teal);
 }
 
+/* --- An address or a number that is the point of its card --------------- */
+
+/*
+ * Tapping a classmate's number to ring them is the single most valuable thing
+ * on a member's page, and as a bare inline link it was an 18px-tall target.
+ */
+.contact-line { margin: 0.35rem 0; }
+
+.contact-line a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-weight: 700;
+  text-underline-offset: 3px;
+}
+
 /* --- A button that must read as a link (e.g. "Stop sharing") ------------ */
 
 .linklike {
@@ -649,7 +711,6 @@ textarea { min-height: 9rem; resize: vertical; line-height: 1.6; }
 @media (prefers-reduced-motion: reduce) {
   /* The library is told flippingTime: 0 as well; this catches its shadows. */
   .stf__parent * { transition: none !important; }
-}
 }
 
 /* --- Progress bar (souvenir completion) --------------------------------- */

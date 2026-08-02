@@ -207,6 +207,42 @@ export function vaultForMember(db: D1Database, memberId: string, limit = 50) {
     .all<PostRow & { state: string }>();
 }
 
+/**
+ * One member's posts, as far as another member may see them — the list on a
+ * profile page.
+ *
+ * This used to be a hand-written join in more.tsx that re-stated the read rule
+ * a second time. It was correct on the day it was written and then quietly
+ * went stale: it never learned about the 'batch' audience added for the hub.
+ * That particular staleness happened to be harmless, which is exactly why it
+ * is worth removing — the next one might not be.
+ *
+ * Channel posts are excluded. A hub thread reaches every member because it was
+ * shared with the batch, and listing forty of those under somebody's
+ * photograph would drown the memories that belong there.
+ */
+export function postsByAuthorFor(
+  db: D1Database,
+  viewerId: string,
+  authorId: string,
+  limit = 20,
+) {
+  return db
+    .prepare(
+      `SELECT ${POST_COLUMNS}
+         FROM posts p
+         JOIN members m ON m.id = p.author_id
+        WHERE p.author_id = ?2
+          AND p.state = 'posted'
+          AND p.channel_id IS NULL
+          AND p.id IN (${READABLE_POST_IDS})
+        ORDER BY p.created_at DESC
+        LIMIT ?3`,
+    )
+    .bind(viewerId, authorId, limit)
+    .all<PostRow>();
+}
+
 /** Posts shared into one group, for that group's page. Membership checked. */
 export function feedForGroup(
   db: D1Database,
@@ -422,7 +458,8 @@ export async function mediaForModeration(
 
 export interface ShareRow {
   id: string;
-  audience_kind: 'member' | 'group' | 'public';
+  /** 'batch' is the hub's audience — every signed-in member, and no further. */
+  audience_kind: 'member' | 'group' | 'public' | 'batch';
   audience_id: string | null;
   audience_name: string | null;
 }

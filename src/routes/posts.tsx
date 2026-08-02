@@ -94,9 +94,12 @@ postRoutes.get('/post/:id', async (c) => {
       : shares.length > 0 ? 'shared'
       : 'private';
 
+  // publicTab matters only when there is no session: an approved memory can be
+  // opened from a link pasted into WhatsApp, and that visitor should get the
+  // public navigation rather than a page with no way onward.
   return c.html(
     <Layout title={post.title ?? 'A memory'} viewer={viewer ?? null}
-            tab={isAuthor ? 'vault' : 'home'}
+            tab={isAuthor ? 'vault' : 'home'} publicTab="stories"
             back={{ href: isAuthor ? '/vault' : '/', label: isAuthor ? 'My Vault' : 'Home' }}>
       <h1>{post.title || 'Untitled'}</h1>
       <p class="card-meta">
@@ -134,10 +137,12 @@ postRoutes.get('/post/:id', async (c) => {
                   {s.audience_kind === 'public'
                     ? (pub?.status === 'approved'
                         ? 'Everyone, on the public pages'
-                        : 'Offered to the public pages — waiting for an admin to approve')
+                        : 'Offered to the public pages — waiting to be read')
                     : s.audience_kind === 'group'
                       ? `Everyone in ${s.audience_name}`
-                      : s.audience_name}
+                      : s.audience_kind === 'batch'
+                        ? 'Everyone in the batch'
+                        : s.audience_name}
                   {' '}
                   <form method="post" action={`/post/${id}/unshare`} style="display:inline">
                     <input type="hidden" name="share_id" value={s.id} />
@@ -148,9 +153,16 @@ postRoutes.get('/post/:id', async (c) => {
             </ul>
           )}
 
+          {/* A "no" must never be a dead end. The note explains it, and the
+              line underneath says exactly what to do to ask again. */}
           {pub?.status === 'rejected' && (
-            <ErrorNotice title="An admin did not put this on the public pages.">
+            <ErrorNotice title="This one did not go on the public pages.">
               <p>{pub.review_note || 'No reason was given. Ask on WhatsApp if you would like to know more.'}</p>
+              <p>
+                It is still yours, and still here. If you would like the
+                committee to look again, tap <strong>Stop sharing</strong> on
+                the public pages line above, then offer it once more.
+              </p>
             </ErrorNotice>
           )}
 
@@ -230,7 +242,7 @@ postRoutes.get('/post/:id/share', requireAuth, async (c) => {
   return c.html(
     <Layout title="Share" viewer={viewer} tab="vault"
             back={{ href: `/post/${id}`, label: 'Back to the post' }}>
-      <h1>Share “{post.title}”</h1>
+      <h1>Share “{post.title || 'Untitled'}”</h1>
       <p class="page-intro">
         Choose who you would like to see this. You can undo any of it later.
       </p>
@@ -249,10 +261,12 @@ postRoutes.get('/post/:id/share', requireAuth, async (c) => {
             {already.map((s) => (
               <li style="margin-bottom:0.4rem">
                 {s.audience_kind === 'public'
-                  ? 'The public pages — waiting for an admin'
+                  ? 'The public pages — waiting to be read'
                   : s.audience_kind === 'group'
                     ? `Everyone in ${s.audience_name}`
-                    : s.audience_name}
+                    : s.audience_kind === 'batch'
+                      ? 'Everyone in the batch'
+                      : s.audience_name}
               </li>
             ))}
           </ul>
@@ -321,9 +335,9 @@ postRoutes.get('/post/:id/share', requireAuth, async (c) => {
       ) : (
         <>
           <p class="page-intro">
-            This puts your memory on our public pages, where anyone can read it.
-            An admin reads everything first — nothing appears publicly until
-            one of them approves it.
+            This puts your memory on our public pages, where anyone at all can
+            read it. One of the committee reads everything first — nothing
+            appears there until they have.
           </p>
           <form method="post" action={`/post/${id}/share`}>
             <input type="hidden" name="kind" value="public" />

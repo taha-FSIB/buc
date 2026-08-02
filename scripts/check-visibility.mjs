@@ -470,6 +470,68 @@ async function main() {
   assertReach('a souvenir photo, anonymous',
     await status(`/media/${souvenirPhoto}`, null), false);
 
+  /* -- A profile page shows only what its owner shared with the reader ----- */
+  // This list used to be a second, hand-written copy of the read rule sitting
+  // in more.tsx. It now goes through visibility.ts like everything else, and
+  // these checks are what stops it drifting back.
+  console.log('\nwhat one member sees on another member\'s page');
+  {
+    const seenBy = async (key) =>
+      (await fetch(`${BASE}/members/${PEOPLE.author.id}`, { headers: { cookie: cookies[key] } })).text();
+
+    const strangerSees = await seenBy('stranger');
+    const friendSees = await seenBy('friend');
+
+    for (const [label, body, key, shouldAppear] of [
+      ['a private post, to a stranger', strangerSees, 'private', false],
+      ['a private post, to a friend', friendSees, 'private', false],
+      ['a post shared with them, to that friend', friendSees, 'toFriend', true],
+      ['that same post, to a stranger', strangerSees, 'toFriend', false],
+      ['a pending submission, to a stranger', strangerSees, 'pending', false],
+      ['an approved public post, to a stranger', strangerSees, 'approved', true],
+      // A hub thread reaches the whole batch, but it belongs in the hub. If it
+      // leaked here every profile would fill up with conversation.
+      ['a hub thread, to a stranger', strangerSees, 'hubThread', false],
+    ]) {
+      checks++;
+      const appears = body.includes(posts[key]);
+      if (appears !== shouldAppear) {
+        failures++;
+        console.error(`  FAIL  ${label}: ${shouldAppear ? 'missing' : 'leaked'}`);
+      } else {
+        console.log(`  ok    ${label} (${shouldAppear ? 'listed' : 'absent'})`);
+      }
+    }
+  }
+
+  /* -- Suspension has to bite immediately ---------------------------------- */
+  // Suspending somebody is the only tool the committee has if an account is
+  // taken over. A 60-day session cookie would make it useless if the check
+  // happened anywhere other than on every single request.
+  console.log('\na member who has been suspended');
+  assertReach('reads the hub before', await status(`/talk/thread/${posts.hubThread}`, cookies.grpmate), true);
+  sql([`UPDATE members SET status = 'suspended' WHERE id = '${PEOPLE.grpmate.id}';`]);
+  checks++;
+  const afterSuspend = await status(`/talk/thread/${posts.hubThread}`, cookies.grpmate);
+  if (afterSuspend === 303) console.log('  ok    their live session stops working at once (303)');
+  else { failures++; console.error(`  FAIL  a suspended member still got HTTP ${afterSuspend}`); }
+  assertReach('and their group post is gone too',
+    await status(`/post/${posts.toGroup}`, cookies.grpmate), false);
+  sql([`UPDATE members SET status = 'active' WHERE id = '${PEOPLE.grpmate.id}';`]);
+  assertReach('restored when the suspension is lifted',
+    await status(`/talk/thread/${posts.hubThread}`, cookies.grpmate), true);
+
+  /* -- The way in, for somebody arriving for the first time ---------------- */
+  console.log('\nthe first-run explanation');
+  assertReach('to a member', await status('/hello', cookies.stranger), true);
+  assertReach('its second screen', await status('/hello/2', cookies.stranger), true);
+  for (const path of ['/hello', '/hello/2']) {
+    checks++;
+    const code = await status(path, null);
+    if (code === 303) console.log(`  ok    ${path} sends a visitor to sign in (303)`);
+    else { failures++; console.error(`  FAIL  ${path} returned ${code} to a visitor`); }
+  }
+
   /* -- The reunion, and answers from people who have no account ------------ */
   // The public form is the one place on the site where an unauthenticated
   // stranger writes to the database. It has to be open — an invitee the
