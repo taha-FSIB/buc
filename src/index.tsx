@@ -32,6 +32,7 @@ app.use('*', async (c, next) => {
 app.get('/styles.css', (c) => c.env.ASSETS.fetch(c.req.raw));
 app.get('/transcripts.js', (c) => c.env.ASSETS.fetch(c.req.raw));
 app.get('/islands.js', (c) => c.env.ASSETS.fetch(c.req.raw));
+app.get('/motion.js', (c) => c.env.ASSETS.fetch(c.req.raw));
 
 /* -- Home ------------------------------------------------------------------ */
 // One address, two front doors. A visitor from outside gets the batch's public

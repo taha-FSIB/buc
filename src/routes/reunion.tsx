@@ -96,7 +96,16 @@ reunionRoutes.get('/reunion', async (c) => {
 
       {days > 0 && (
         <div class="notice">
-          <strong>{days === 1 ? 'Tomorrow' : `${days} days to go`}</strong>
+          {/* The number is its own element so motion.js can count up to it.
+              With no JavaScript it is simply the number, already correct. */}
+          <strong>
+            {days === 1 ? 'Tomorrow' : (
+              <>
+                <span class="tally" data-count-to={String(days)}>{days}</span>
+                {' days to go'}
+              </>
+            )}
+          </strong>
           {event.rsvp_by && <p>Please let us know by {humanDates(event.rsvp_by, null)}.</p>}
         </div>
       )}

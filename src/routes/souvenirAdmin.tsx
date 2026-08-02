@@ -167,7 +167,11 @@ souvenirAdminRoutes.get('/admin/souvenir/pdf', requireAdmin, async (c) => {
 
   if (results.length === 0) return c.redirect('/admin/souvenir/compile', 303);
 
-  const bytes = await buildSouvenirPdf(results, c.env.MEDIA);
+  // ASSETS carries the Noto fonts, without which Tamil and Sinhala pages fall
+  // back to Latin and print nothing of what their member actually wrote.
+  const bytes = await buildSouvenirPdf(
+    results, c.env.MEDIA, undefined, c.env.ASSETS,
+  );
   // Copy out to a standalone ArrayBuffer: the Response body type will not take
   // a view whose backing buffer is wider than the view itself.
   const body = bytes.buffer.slice(

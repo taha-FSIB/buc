@@ -40,8 +40,17 @@
   --space-lg: 2rem;
   --space-xl: 3rem;
 
-  --radius: 14px;
+  --radius: 16px;
   --tap: 52px;              /* min height of anything tappable (44px floor +8) */
+
+  /*
+   * Shadows are tinted with the ink, not black. A neutral grey shadow over
+   * warm cream reads as dirt on the paper; the same shadow mixed from the
+   * text colour reads as depth. Two layers — a tight one for the edge, a wide
+   * soft one for the lift — because a single blur always looks like a sticker.
+   */
+  --shadow:      0 1px 2px rgba(28, 25, 23, 0.04), 0 2px 8px rgba(28, 25, 23, 0.045);
+  --shadow-lift: 0 2px 4px rgba(28, 25, 23, 0.05), 0 8px 20px rgba(28, 25, 23, 0.07);
   --measure: 30rem;         /* ~570px — comfortable reading width */
   --tabbar-h: 68px;
 
@@ -110,6 +119,16 @@ body {
 /* Nothing may ever push the page sideways, whatever slips through above. */
 html, body { overflow-x: hidden; }
 
+/*
+ * The entrance gate.
+ *
+ * `anim` is set by an inline script in the head and removed either by
+ * motion.js or by its own two-second timeout, so this rule can only ever hide
+ * content on a page where JavaScript is running and about to bring it back.
+ * See the comment on that script in views/layout.tsx before touching this.
+ */
+html.anim main > * { opacity: 0; }
+
 /* --- Skip link ---------------------------------------------------------- */
 
 .skip-link {
@@ -137,8 +156,24 @@ html, body { overflow-x: hidden; }
   padding: 0 1.1rem;
 }
 
-/* Clears the fixed tab bar so it never covers the last card. */
-main { padding-bottom: calc(var(--tabbar-h) + var(--space-lg)); }
+/*
+ * Clears the fixed tab bar so it never covers the last card.
+ *
+ * This must be `main.wrap`, not `main`. Every main on the site also carries
+ * .wrap, and .wrap sets the `padding` SHORTHAND — which rewrites
+ * padding-bottom to 0 — from a class selector that outranks a bare element
+ * selector whatever the source order. So this rule existed, read correctly,
+ * and never once applied: the last card on every page sat 50-odd pixels
+ * underneath the navigation, and on the vault that meant the newest memory's
+ * "Change who can see this" was the thing you could not reach.
+ *
+ * The inset keeps it clear of the home indicator on an iPhone too.
+ */
+main.wrap {
+  padding-bottom: calc(
+    var(--tabbar-h) + var(--space-xl) + env(safe-area-inset-bottom, 0px)
+  );
+}
 
 /* --- Header ------------------------------------------------------------- */
 
@@ -197,6 +232,12 @@ main { padding-bottom: calc(var(--tabbar-h) + var(--space-lg)); }
   position: fixed;
   left: 0; right: 0; bottom: 0;
   display: flex;
+  /* The bar spans the window so the paper does not stop mid-screen, but the
+     tabs themselves stay together in the middle. Left to grow, on a desktop
+     each of the five became 380px wide and the row read as five unrelated
+     things rather than one navigation. */
+  justify-content: center;
+  position: fixed;                 /* restated for clarity; see left/right/bottom above */
   background: var(--card);
   border-top: 2px solid var(--line);
   padding-bottom: env(safe-area-inset-bottom);
@@ -205,6 +246,7 @@ main { padding-bottom: calc(var(--tabbar-h) + var(--space-lg)); }
 
 .tabbar a {
   flex: 1;
+  max-width: 8rem;
   min-height: var(--tabbar-h);
   display: flex;
   flex-direction: column;
@@ -229,6 +271,33 @@ main { padding-bottom: calc(var(--tabbar-h) + var(--space-lg)); }
   color: var(--accent);
   box-shadow: inset 0 3px 0 var(--accent);
 }
+
+/*
+ * The sliding marker.
+ *
+ * The inset shadow above is the marker when there is no JavaScript, and it is
+ * the one that guarantees the current tab is never signalled by colour alone.
+ * When motion.js is running it adds `has-marker`, which retires the shadow in
+ * favour of the bar below so the two can never both be on screen.
+ */
+.tabbar.has-marker a[aria-current="page"] { box-shadow: none; }
+
+.tab-marker {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 3px;
+  background: var(--accent);
+  border-radius: 0 0 3px 3px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* The headline, split into words by motion.js. `inline-block` is what makes
+   them transformable; the overflow clip is what lets them rise out of nothing
+   rather than sliding over the text above. */
+h1 .word { display: inline-block; will-change: transform; }
+h1:has(.word) { overflow: hidden; padding-bottom: 0.1em; }
 
 .tabbar svg { width: 25px; height: 25px; }
 
@@ -271,8 +340,9 @@ h3 { font-size: var(--text-lg); }
   background: var(--card);
   border: 2px solid var(--line);
   border-radius: var(--radius);
-  padding: 1.15rem;
-  margin-bottom: 1rem;
+  box-shadow: var(--shadow);
+  padding: 1.25rem;
+  margin-bottom: 0.9rem;
 }
 
 .card h2, .card h3 { margin-bottom: 0.3rem; }
@@ -308,10 +378,20 @@ a.card {
   text-decoration: none;
   color: inherit;
   cursor: pointer;
-  transition: border-color 180ms ease, transform 180ms ease;
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
 }
 
-a.card:hover { border-color: var(--accent); }
+/* Lifts rather than reddens. The border stays for contrast; the shadow does
+   the work, which keeps the hover state from shouting. */
+a.card:hover {
+  border-color: var(--ink-soft);
+  box-shadow: var(--shadow-lift);
+  transform: translateY(-1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  a.card:hover { transform: none; }
+}
 
 /* --- Buttons ------------------------------------------------------------ */
 
@@ -691,12 +771,21 @@ main a:not([class]):hover { color: var(--ink); }
 
 /* --- Searchable member picker (React island) ---------------------------- */
 
+/*
+ * No inner scroll box.
+ *
+ * This used to be capped at 19rem with overflow-y: auto, which put a second
+ * scrollbar inside the page. A nested scroll region is a poor thing to hand
+ * somebody with an unsteady thumb: the gesture either moves the list or the
+ * page depending on exactly where it started, and there is no way to tell
+ * which before trying. The list is already filtered by typing, so it is short
+ * by the time it matters — and if it is long, the window scrolls it like
+ * everything else.
+ */
 .picker-list {
   list-style: none;
   margin: 0.6rem 0 0;
   padding: 0;
-  max-height: 19rem;
-  overflow-y: auto;
   border: 2px solid var(--line);
   border-radius: var(--radius);
   background: var(--card);

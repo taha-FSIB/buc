@@ -74,6 +74,26 @@ export const Layout: FC<PropsWithChildren<LayoutProps>> = ({
       />
       <link rel="stylesheet" href="/styles.css" />
       <meta name="theme-color" content="#fffbeb" />
+      {/*
+        Inline, in the head, on purpose — it has to run before the first paint
+        or the page visibly flashes its content and then hides it again.
+
+        It marks the document as "about to animate", which is the only thing
+        that makes `main`'s children start invisible. Two consequences worth
+        keeping: with JavaScript off the class never appears and the page is
+        simply readable, and the timeout below removes it regardless, so a
+        motion.js that is slow, blocked or broken costs two seconds rather
+        than the entire site. Anybody who has asked their device for reduced
+        motion is skipped here entirely.
+      */}
+      <script
+        dangerouslySetInnerHTML={{
+          __html:
+            '(function(d){try{if(matchMedia("(prefers-reduced-motion: reduce)").matches)return}'
+            + 'catch(e){}d.className+=" anim";'
+            + 'setTimeout(function(){d.classList.remove("anim")},2000)})(document.documentElement)',
+        }}
+      />
     </head>
     <body>
       <a class="skip-link" href="#main">Skip to main content</a>
@@ -125,6 +145,9 @@ export const Layout: FC<PropsWithChildren<LayoutProps>> = ({
           ))}
         </nav>
       ) : null}
+
+      {/* Deferred, so nothing anybody came here to read waits on it. */}
+      <script src="/motion.js" defer></script>
     </body>
   </html>
 );
