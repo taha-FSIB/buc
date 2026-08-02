@@ -92,7 +92,7 @@ adminRoutes.get('/admin', requireAdmin, async (c) => {
         <p class="card-meta">{counts?.pages ?? 0} waiting</p>
       </a>
       <a class="card" href="/admin/souvenir/compile">
-        <h2>Compile the souvenir</h2>
+        <h2>Put the souvenir together</h2>
         <p class="card-meta">Order the pages and download the PDF</p>
       </a>
       <a class="card" href="/admin/members">

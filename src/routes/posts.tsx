@@ -112,7 +112,7 @@ postRoutes.get('/post/:id', async (c) => {
           <strong>You are reading this to decide about the public pages.</strong>
           <p>
             {post.author_name} offered it. Nobody outside the batch can see it
-            yet. <a href="/admin/queue">Go back to the queue to decide</a>.
+            yet. <a href="/admin/queue">Go back to the list to decide</a>.
           </p>
         </div>
       )}
@@ -250,7 +250,7 @@ postRoutes.get('/post/:id/share', requireAuth, async (c) => {
       {added && (
         <div class="notice" role="status">
           <strong>Shared with {added}.</strong>
-          <p>Add somebody else below, or go back to the post when you are done.</p>
+          <p>Add somebody else below, or go back to your memory when you are done.</p>
         </div>
       )}
 

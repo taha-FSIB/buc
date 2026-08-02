@@ -52,9 +52,9 @@ souvenirAdminRoutes.get('/admin/souvenir/compile', requireAdmin, async (c) => {
   const pct = members > 0 ? Math.round((submitted / members) * 100) : 0;
 
   return c.html(
-    <Layout title="Compile the souvenir" viewer={viewer} tab="more"
+    <Layout title="Put the souvenir together" viewer={viewer} tab="more"
             back={{ href: '/admin', label: 'Admin' }}>
-      <h1>Compile the souvenir</h1>
+      <h1>Put the souvenir together</h1>
 
       <div class="card">
         <h2>{submitted} of {members} members have sent their page</h2>
@@ -117,7 +117,8 @@ souvenirAdminRoutes.get('/admin/souvenir/compile', requireAdmin, async (c) => {
             WhatsApp nudge — they need time to find an old photograph.
           </p>
           <ul class="directory">
-            {missing.map((m) => <li><a href="#" style="cursor:default">{m.name}</a></li>)}
+            {/* Names, not links — see the same list on /admin/reunion. */}
+            {missing.map((m) => <li><span class="directory-row">{m.name}</span></li>)}
           </ul>
         </>
       )}

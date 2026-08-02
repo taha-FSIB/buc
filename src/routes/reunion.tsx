@@ -630,14 +630,18 @@ reunionRoutes.get('/admin/reunion', requireAdmin, async (c) => {
           ))
       )}
 
+      {/* These are names, not links. They were anchors with href="#" purely to
+          borrow the .directory row styling, which put a focus stop and a
+          screen-reader "link" announcement on every one of sixty-one people
+          and led nowhere. A span reads them as what they are. */}
       <h2 class="section-title">Everyone who answered</h2>
       <ul class="directory">
         {answered.map((r) => (
           <li>
-            <a href="#" style="cursor:default">
+            <span class="directory-row">
               {r.name} — {r.answer === 'yes' ? 'coming' : r.answer === 'maybe' ? 'maybe' : 'cannot come'}
               {r.guests > 0 && ` (+${r.guests})`}
-            </a>
+            </span>
           </li>
         ))}
       </ul>
@@ -647,7 +651,7 @@ reunionRoutes.get('/admin/reunion', requireAdmin, async (c) => {
           <h2 class="section-title">Still to answer</h2>
           <p class="page-intro">Worth a WhatsApp message or a phone call.</p>
           <ul class="directory">
-            {silent.map((m) => <li><a href="#" style="cursor:default">{m.name}</a></li>)}
+            {silent.map((m) => <li><span class="directory-row">{m.name}</span></li>)}
           </ul>
         </>
       )}

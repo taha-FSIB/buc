@@ -84,7 +84,7 @@ souvenirRoutes.get('/souvenir', requireAuth, async (c) => {
       </p>
       {viewer.role === 'admin' && (
         <p>
-          <a class="back" href="/admin/souvenir/compile">Compile and print the souvenir</a>
+          <a class="back" href="/admin/souvenir/compile">Put the souvenir together and print it</a>
         </p>
       )}
     </Layout>,

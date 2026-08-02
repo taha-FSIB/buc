@@ -150,7 +150,7 @@ vaultRoutes.get('/vault', requireAuth, async (c) => {
           <h2>Your vault is empty</h2>
           <p>
             Put your first photo or story in. Only you will see it until you
-            decide otherwise.
+            say so.
           </p>
           <a class="btn" href="/vault/new">Add something</a>
         </div>

@@ -802,7 +802,7 @@ main a:not([class]):hover { color: var(--ink); }
 
 .directory li { border-bottom: 2px solid var(--line); }
 
-.directory a {
+.directory a, .directory .directory-row {
   display: flex;
   align-items: center;
   min-height: var(--tap);
