@@ -14,11 +14,23 @@
  *     grants nothing;
  *   * an admin has no blanket read access to private vaults.
  *
- * Usage:  node scripts/check-visibility.mjs [baseUrl]
- * Needs a dev server running against the local D1 (npm run dev).
+ * Usage:
+ *   node scripts/check-visibility.mjs                      local dev server
+ *   node scripts/check-visibility.mjs <baseUrl> --remote   a real deployment
+ *
+ * Without --remote this needs `npm run dev` running against the local D1.
+ * With it, the fixtures are written to the live database, because the whole
+ * point is to exercise the deployment rather than a copy of it. Only run that
+ * against a site that is not yet in front of members: it creates five accounts,
+ * posts, groups and reunion answers, and while it removes all of them at the
+ * end, a run that dies half-way leaves them behind for the next run to clear.
  *
  * Fixtures all carry a `vtest_` prefix and are removed at the end, including
  * the R2 objects, which are deleted through the app's own delete route.
+ *
+ * If R2 is switched off, everything that needs a file is skipped rather than
+ * failed, and the count of skipped checks is printed. A pass therefore does NOT
+ * mean the media rules hold — it means the rules that could be tested hold.
  */
 
 import { createHash, randomBytes } from 'node:crypto';
@@ -28,7 +40,9 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const BASE = (process.argv[2] ?? 'http://127.0.0.1:8787').replace(/\/+$/, '');
+const ARGS = process.argv.slice(2);
+const REMOTE = ARGS.includes('--remote');
+const BASE = (ARGS.find((a) => !a.startsWith('--')) ?? 'http://127.0.0.1:8787').replace(/\/+$/, '');
 const sha256 = (s) => createHash('sha256').update(s).digest('hex');
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -36,14 +50,16 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // spawning a .cmd shim without a shell fails with EINVAL on current Node.
 const WRANGLER = join(ROOT, 'node_modules', 'wrangler', 'bin', 'wrangler.js');
 
-/* -- Running SQL against the local database -------------------------------- */
+/* -- Running SQL against the database under test --------------------------- */
+// Must be the same database the app at BASE is reading, or every assertion is
+// meaningless: the fixtures would go one place and the reads come from another.
 function sql(statements) {
   const file = join(tmpdir(), `vtest-${randomBytes(6).toString('hex')}.sql`);
   writeFileSync(file, statements.join('\n'), 'utf8');
   try {
     execFileSync(
       process.execPath,
-      [WRANGLER, 'd1', 'execute', 'buc_alumni', '--local', '--file', file],
+      [WRANGLER, 'd1', 'execute', 'buc_alumni', REMOTE ? '--remote' : '--local', '--file', file],
       { stdio: 'pipe', cwd: ROOT },
     );
   } finally {
@@ -162,7 +178,7 @@ async function createGroup(cookie, { name, listed, joinPolicy = 'invite' }) {
   body.set('kind', 'other');
   body.set('join_policy', joinPolicy);
   if (listed) body.set('listed', '1');
-  body.set('cover', new Blob([PIXEL], { type: 'image/png' }), 'cover.png');
+  if (MEDIA) body.set('cover', new Blob([PIXEL], { type: 'image/png' }), 'cover.png');
 
   const res = await fetch(`${BASE}/groups/new`, {
     method: 'POST', headers: { cookie }, body, redirect: 'manual',
@@ -247,6 +263,26 @@ async function status(path, cookie) {
 /* -- The matrix ------------------------------------------------------------ */
 let failures = 0;
 let checks = 0;
+let skipped = 0;
+
+/**
+ * Whether this deployment has R2 behind it, asked of the running app rather
+ * than assumed from wrangler.toml — the harness may well be pointed at a
+ * deployment built from a different config than the one on this disk.
+ *
+ * `/vault/new` only offers the photo option when a bucket is bound, which is
+ * the same `mediaEnabled()` call every upload path goes through.
+ */
+async function detectMedia(cookie) {
+  const html = await (await fetch(`${BASE}/vault/new`, { headers: { cookie } })).text();
+  return html.includes('/vault/new/photo');
+}
+let MEDIA = true;
+
+function skip(label) {
+  skipped++;
+  console.log(`  --    ${label} — skipped, no file storage`);
+}
 
 function assertReach(label, actual, shouldSee) {
   checks++;
@@ -275,9 +311,22 @@ async function main() {
   for (const key of Object.keys(PEOPLE)) cookies[key] = await signIn(key);
   Object.assign(cookiesRef, cookies);
 
+  MEDIA = await detectMedia(cookies.author);
+  if (!MEDIA) {
+    console.log('File storage is off on this deployment. Everything that needs a');
+    console.log('photograph is skipped below, and the privacy of media is NOT\n'
+              + 'proved by this run.\n');
+  }
+
+  // With no bucket, a post that would have carried a photograph is made as a
+  // written one instead. The visibility rule is a property of the post, not of
+  // what is attached to it, so the reach checks stay honest; only the separate
+  // /media/ assertions are lost.
+  const photoKind = MEDIA ? 'photo' : 'story';
+
   const posts = {
     private: await createPost(cookies.author, {
-      kind: 'photo', title: 'vtest private', visibility: 'private', withPhoto: true,
+      kind: photoKind, title: 'vtest private', visibility: 'private', withPhoto: MEDIA,
     }),
     toFriend: await createPost(cookies.author, {
       kind: 'story', title: 'vtest shared with one friend', visibility: 'private',
@@ -290,12 +339,12 @@ async function main() {
       kind: 'story', title: 'vtest awaiting approval', visibility: 'public',
     }),
     pendingPhoto: await createPost(cookies.author, {
-      kind: 'photo', title: 'vtest photo awaiting approval', visibility: 'public',
-      withPhoto: true,
+      kind: photoKind, title: 'vtest photo awaiting approval', visibility: 'public',
+      withPhoto: MEDIA,
     }),
     approved: await createPost(cookies.author, {
-      kind: 'photo', title: 'vtest approved for the public', visibility: 'public',
-      withPhoto: true,
+      kind: photoKind, title: 'vtest approved for the public', visibility: 'public',
+      withPhoto: MEDIA,
     }),
     draftShared: await createPost(cookies.author, {
       kind: 'story', title: 'vtest draft but shared', visibility: 'private',
@@ -316,9 +365,9 @@ async function main() {
   // way to make a draft. The point is that state and reach are separate checks.
   sql([`UPDATE posts SET state = 'draft' WHERE id = '${posts.draftShared}';`]);
 
-  const privateMedia = await mediaIdOf(cookies.author, posts.private);
-  const publicMedia = await mediaIdOf(cookies.author, posts.approved);
-  const pendingMedia = await mediaIdOf(cookies.author, posts.pendingPhoto);
+  const privateMedia = MEDIA ? await mediaIdOf(cookies.author, posts.private) : null;
+  const publicMedia = MEDIA ? await mediaIdOf(cookies.author, posts.approved) : null;
+  const pendingMedia = MEDIA ? await mediaIdOf(cookies.author, posts.pendingPhoto) : null;
 
   const VIEWERS = ['author', 'friend', 'grpmate', 'stranger', 'admin'];
 
@@ -349,6 +398,9 @@ async function main() {
 
   for (const [label, path, expected, anonymous] of MATRIX) {
     console.log(`\n${label}`);
+    // The /media/ rows have no subject at all without a bucket; there is no
+    // object to ask for, so asserting a 404 would prove nothing.
+    if (!MEDIA && path.startsWith('/media/')) { skip('every viewer'); continue; }
     for (const v of VIEWERS) {
       assertReach(`${v.padEnd(9)}`, await status(path, cookies[v]), expected[v]);
     }
@@ -464,11 +516,16 @@ async function main() {
   else { failures++; console.error(`  FAIL  /souvenir returned ${anonBook} to a visitor`); }
 
   // A souvenir photograph is consented to a printed book, not to the internet.
-  const souvenirPhoto = await createSouvenirPage(cookies.author);
-  assertReach('a souvenir photo, to a member',
-    await status(`/media/${souvenirPhoto}`, cookies.friend), true);
-  assertReach('a souvenir photo, anonymous',
-    await status(`/media/${souvenirPhoto}`, null), false);
+  if (!MEDIA) {
+    skip('a souvenir photo, to a member');
+    skip('a souvenir photo, anonymous');
+  } else {
+    const souvenirPhoto = await createSouvenirPage(cookies.author);
+    assertReach('a souvenir photo, to a member',
+      await status(`/media/${souvenirPhoto}`, cookies.friend), true);
+    assertReach('a souvenir photo, anonymous',
+      await status(`/media/${souvenirPhoto}`, null), false);
+  }
 
   /* -- A profile page shows only what its owner shared with the reader ----- */
   // This list used to be a second, hand-written copy of the read rule sitting
@@ -651,13 +708,20 @@ async function main() {
   const secretGroup = await createGroup(cookies.author, {
     name: 'vtest unlisted group', listed: false,
   });
-  const listedCover = await coverIdOf(cookies.author, listedGroup);
-  const secretCover = await coverIdOf(cookies.author, secretGroup);
+  if (!MEDIA) {
+    for (const l of ['listed cover, to a member', 'listed cover, anonymous',
+      'unlisted cover, to an outsider', 'unlisted cover, to its owner']) skip(l);
+  } else {
+    const listedCover = await coverIdOf(cookies.author, listedGroup);
+    const secretCover = await coverIdOf(cookies.author, secretGroup);
 
-  assertReach('listed cover, to a member', await status(`/media/${listedCover}`, cookies.stranger), true);
-  assertReach('listed cover, anonymous', await status(`/media/${listedCover}`, null), false);
-  assertReach('unlisted cover, to an outsider', await status(`/media/${secretCover}`, cookies.stranger), false);
-  assertReach('unlisted cover, to its owner', await status(`/media/${secretCover}`, cookies.author), true);
+    assertReach('listed cover, to a member', await status(`/media/${listedCover}`, cookies.stranger), true);
+    assertReach('listed cover, anonymous', await status(`/media/${listedCover}`, null), false);
+    assertReach('unlisted cover, to an outsider', await status(`/media/${secretCover}`, cookies.stranger), false);
+    assertReach('unlisted cover, to its owner', await status(`/media/${secretCover}`, cookies.author), true);
+  }
+  // Not a media check: whether an outsider can reach the group at all is the
+  // rule that matters, and it holds with or without a cover on the page.
   assertReach('the unlisted group page, to an outsider', await status(`/groups/${secretGroup}`, cookies.stranger), false);
 
   console.log('\nan invitation that has not been accepted');
@@ -724,6 +788,11 @@ async function main() {
   if (failures) {
     console.error(`${failures} FAILED — do not deploy this.`);
     process.exit(1);
+  }
+  if (skipped) {
+    console.log(`${skipped} skipped: file storage is off, so nothing about the`);
+    console.log('privacy of photographs and recordings was tested. Run this');
+    console.log('again once R2 is on, before members are let in.');
   }
   console.log('The privacy model holds.');
 }
