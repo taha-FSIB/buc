@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { AppBindings } from '../types';
-import { Layout, ErrorNotice } from '../views/layout';
+import { Layout, Panel, ErrorNotice } from '../views/layout';
 import { requireAuth, requireAdmin, viewerOf } from '../lib/guard';
 import { inviteMember, LinkHandout } from './admin';
 import { emailConfigured } from '../lib/mailer';
@@ -85,13 +85,26 @@ reunionRoutes.get('/reunion', async (c) => {
     byDay.get(line.day_label)!.push(line);
   }
 
+  /*
+   * The sections are built from what this event actually has, so the keywords
+   * in the navbar can never advertise a screen that is not there — an event
+   * with no address must not offer "Where". Order matters: it is the order the
+   * panels are written below, and the bead position is derived from the index.
+   */
+  const sections = [{ id: 'when', key: 'When' }];
+  if (byDay.size > 0) sections.push({ id: 'programme', key: 'Programme' });
+  if (event.address) sections.push({ id: 'where', key: 'Where' });
+  if (event.contact_note) sections.push({ id: 'questions', key: 'Questions' });
+
   return c.html(
     <Layout title="The Reunion" viewer={viewer ?? null} tab="home" publicTab="reunion"
-            description={`${event.name} — ${humanDates(event.starts_on, event.ends_on)}${event.venue ? `, ${event.venue}` : ''}.`}>
-      <h1>{event.name}</h1>
-      <p class="page-intro" style="font-size:1.15rem;color:var(--ink)">
-        <strong>{humanDates(event.starts_on, event.ends_on)}</strong>
-        {event.venue && <><br />{event.venue}</>}
+            description={`${event.name} — ${humanDates(event.starts_on, event.ends_on)}${event.venue ? `, ${event.venue}` : ''}.`}
+            sections={sections} timeline>
+      <Panel id="when">
+      <p class="eyebrow">{humanDates(event.starts_on, event.ends_on)}</p>
+      <h1 class="display-line">{event.name}</h1>
+      <p class="page-intro" style="color:var(--ink)">
+        {event.venue}
       </p>
 
       {days > 0 && (
@@ -149,42 +162,53 @@ reunionRoutes.get('/reunion', async (c) => {
         </>
       )}
 
+      </Panel>
+
+      {byDay.size > 0 && (
+        <Panel id="programme" list>
+          <p class="eyebrow">What is happening</p>
+          <h2>The programme</h2>
+          {[...byDay.entries()].map(([day, lines]) => (
+            <>
+              <h3 style="margin-top:var(--space-md)">{day}</h3>
+              <ul class="ruled">
+                {lines.map((l) => (
+                  <li>
+                    <span class="k">{l.time_label ?? '—'}</span>
+                    <p class="v">
+                      <strong>{l.title}</strong>
+                      {l.detail ?? ''}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ))}
+        </Panel>
+      )}
+
       {event.address && (
-        <>
-          <h2 class="section-title">Where</h2>
-          <p>{event.venue}<br />{event.address}</p>
-          {event.map_url && (
-            <p><a class="btn btn-secondary" href={event.map_url}
-                  target="_blank" rel="noopener noreferrer">Open the map</a></p>
-          )}
+        <Panel id="where">
+          <p class="eyebrow">Where</p>
+          <h2>{event.venue}</h2>
+          <p class="page-intro">{event.address}</p>
           {event.venue_notes?.split(/\n{2,}/).map((para) => <p>{para}</p>)}
-        </>
+          {event.map_url && (
+            <p style="margin-top:var(--space-md)">
+              <a class="btn btn-secondary" href={event.map_url}
+                 target="_blank" rel="noopener noreferrer">Open the map</a>
+            </p>
+          )}
+        </Panel>
       )}
 
       {event.contact_note && (
-        <>
-          <h2 class="section-title">Any questions</h2>
+        <Panel id="questions">
+          <p class="eyebrow">Any questions</p>
+          <h2>Ask us</h2>
           <p class="page-intro">{event.contact_note}</p>
-          <a class="btn btn-secondary btn-block" href="/contact">Send us a message</a>
-        </>
-      )}
-
-      {byDay.size > 0 && (
-        <>
-          <h2 class="section-title">What is happening</h2>
-          {[...byDay.entries()].map(([day, lines]) => (
-            <div class="card">
-              <h3>{day}</h3>
-              {lines.map((l) => (
-                <p style="margin:0 0 0.6rem">
-                  {l.time_label && <strong>{l.time_label} — </strong>}
-                  {l.title}
-                  {l.detail && <><br /><span class="card-meta">{l.detail}</span></>}
-                </p>
-              ))}
-            </div>
-          ))}
-        </>
+          <a class="btn" href="/contact">Send us a message</a>
+        </Panel>
       )}
     </Layout>,
   );

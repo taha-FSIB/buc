@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import type { AppBindings } from '../types';
-import { Layout, ErrorNotice } from '../views/layout';
+import { Layout, Panel, ErrorNotice } from '../views/layout';
 import { publicFeed, getPost } from '../lib/visibility';
 import { StoryText } from '../views/story';
 import { newId } from '../lib/ids';
@@ -39,54 +39,91 @@ export async function publicHome(c: Context<AppBindings>) {
       .first<{ name: string; starts_on: string; ends_on: string | null; venue: string | null }>(),
   ]);
 
+  const sections = [
+    { id: 'first', key: 'The first' },
+    { id: 'reunion', key: 'Reunion' },
+    { id: 'memories', key: 'Memories' },
+    { id: 'join', key: 'Were you one of us?' },
+  ];
+
   return c.html(
-    <Layout title="Home" viewer={null} publicTab="home" description={TAGLINE}>
-      <h1>We were the first.</h1>
-      <p class="page-intro" style="font-size:1.15rem;color:var(--ink)">
-        {TAGLINE} Forty-five years on, we are still a batch.
-      </p>
-
-      <p class="page-intro">
-        This is where we keep what we remember — photographs, stories, and the
-        names of people who mattered to each other a long time ago and still
-        do. Some of it is here for anybody to read. Most of it is private, and
-        that is how the batch wants it.
-      </p>
-
-      {event && (
-        <a class="card" href="/reunion" style="border-color:var(--accent);border-width:3px">
-          <h2>{event.name}</h2>
-          <p class="card-meta">
-            {event.venue ?? 'Eastern University'} — details and how to reach us
-          </p>
-        </a>
-      )}
-
-      <h2 class="section-title">Some of our memories</h2>
-      {stories.length === 0 ? (
+    <Layout title="Home" viewer={null} publicTab="home" description={TAGLINE}
+            sections={sections} timeline>
+      <Panel id="first">
+        <p class="eyebrow">Batticaloa University College</p>
+        <h1 class="display-line">We were<span class="quiet">the first.</span></h1>
         <p class="page-intro">
-          The batch is still gathering its stories. Please look again soon.
+          {TAGLINE} Forty-five years on, we are still a batch.
         </p>
-      ) : (
-        <>
-          {stories.map((p) => (
-            <a class="card" href={`/stories/${p.id}`}>
-              <h2>{p.title || 'Untitled'}</h2>
-              <p class="card-meta">{p.author_name}</p>
-              {p.body && <p class="card-body">{p.body.slice(0, 160)}</p>}
-            </a>
-          ))}
-          <a class="btn btn-secondary btn-block" href="/stories">Read them all</a>
-        </>
-      )}
+        <p class="page-intro">
+          This is where we keep what we remember — photographs, stories, and the
+          names of people who mattered to each other a long time ago and still
+          do. Some of it is here for anybody to read. Most of it is private, and
+          that is how the batch wants it.
+        </p>
+      </Panel>
 
-      <h2 class="section-title">Were you one of us?</h2>
-      <p class="page-intro">
-        If you were in the pioneer batch, there is a private side to this site
-        with the rest of it. Sign in, or ask any of us on WhatsApp and we will
-        send you a link.
-      </p>
-      <a class="btn btn-block" href="/signin">Sign in</a>
+      <Panel id="reunion">
+        <p class="eyebrow">Coming up</p>
+        {event ? (
+          <>
+            <h2 class="display-line">{event.name}</h2>
+            <p class="page-intro">
+              {event.venue ?? 'Eastern University'} — details, the programme,
+              and how to tell us you are coming.
+            </p>
+            <a class="btn" href="/reunion">The reunion</a>
+          </>
+        ) : (
+          <>
+            <h2 class="display-line">Nothing in the diary just yet.</h2>
+            <p class="page-intro">
+              When the batch fixes a date it will be here first.
+            </p>
+            <a class="btn btn-secondary" href="/stories">Read our memories</a>
+          </>
+        )}
+      </Panel>
+
+      <Panel id="memories" list>
+        <p class="eyebrow">Shared with everyone</p>
+        <h2>Some of our memories</h2>
+        {stories.length === 0 ? (
+          <p class="page-intro">
+            The batch is still gathering its stories. Please look again soon.
+          </p>
+        ) : (
+          <>
+            <ul class="ruled">
+              {stories.map((p) => (
+                <li>
+                  <a class="row" href={`/stories/${p.id}`}>
+                    <span class="k">{p.author_name}</span>
+                    <p class="v">
+                      <strong>{p.title || 'Untitled'}</strong>
+                      {p.body ? p.body.slice(0, 160) : ''}
+                    </p>
+                  </a>
+                </li>
+              ))}
+            </ul>
+            <p style="margin-top:var(--space-md)">
+              <a class="btn btn-secondary" href="/stories">Read them all</a>
+            </p>
+          </>
+        )}
+      </Panel>
+
+      <Panel id="join">
+        <p class="eyebrow">The private side</p>
+        <h2 class="display-line">Were you one of us?</h2>
+        <p class="page-intro">
+          If you were in the pioneer batch, there is a private side to this site
+          with the rest of it. Sign in, or ask any of us on WhatsApp and we will
+          send you a link.
+        </p>
+        <a class="btn" href="/signin">Sign in</a>
+      </Panel>
     </Layout>,
   );
 }
@@ -99,53 +136,63 @@ publicRoutes.get('/our-story', async (c) => {
 
   return c.html(
     <Layout title="Our Story" viewer={c.get('viewer') ?? null} publicTab="story"
-            description={`How the pioneer batch of Batticaloa University College began, and where we are now.`}>
-      <h1>Our story</h1>
+            description={`How the pioneer batch of Batticaloa University College began, and where we are now.`}
+            sections={[
+              { id: 'beginning', key: 'The beginning' },
+              { id: 'since', key: 'Since then' },
+              { id: 'whats-here', key: "What's here" },
+            ]} timeline>
+      <Panel id="beginning">
+        <p class="eyebrow">1979</p>
+        <h1 class="display-line">Our story</h1>
+        <p class="page-intro">
+          Batticaloa University College opened its doors and we walked through
+          them first. There was no batch ahead of us to ask how anything worked,
+          no traditions to inherit, and nobody who had done it before. We worked
+          it out between us.
+        </p>
+      </Panel>
 
-      <p class="page-intro">
-        Batticaloa University College opened its doors and we walked through
-        them first. There was no batch ahead of us to ask how anything worked,
-        no traditions to inherit, and nobody who had done it before. We worked
-        it out between us.
-      </p>
+      <Panel id="since">
+        <p class="eyebrow">Since then</p>
+        <h2>Careers happened. Grandchildren happened.</h2>
+        <p>
+          The college became Eastern University. The lecture rooms we sat in are
+          still there, and so, remarkably, are most of us — in Batticaloa and
+          Colombo, and in London, Toronto, Sydney, and a dozen places in between.
+        </p>
+        <p>
+          What did not happen is that we lost each other. Forty-five years is
+          long enough for a friendship to become something you assume rather than
+          something you keep up, and then one day somebody starts a WhatsApp
+          group and it turns out everybody was still there.
+        </p>
+        <p>
+          This site is the next part of that. WhatsApp is where we talk, but it
+          forgets — a photograph posted on a Tuesday is gone by Friday. Here,
+          things stay. {counts?.n ? `${counts.n} of us have joined so far.` : ''}
+        </p>
+      </Panel>
 
-      <p>
-        The college became Eastern University. The lecture rooms we sat in are
-        still there, and so, remarkably, are most of us — in Batticaloa and
-        Colombo, and in London, Toronto, Sydney, and a dozen places in between.
-        Careers happened. Children happened. Grandchildren happened.
-      </p>
-
-      <p>
-        What did not happen is that we lost each other. Forty-five years is
-        long enough for a friendship to become something you assume rather than
-        something you keep up, and then one day somebody starts a WhatsApp
-        group and it turns out everybody was still there.
-      </p>
-
-      <p>
-        This site is the next part of that. WhatsApp is where we talk, but it
-        forgets — a photograph posted on a Tuesday is gone by Friday. Here,
-        things stay. {counts?.n ? `${counts.n} of us have joined so far.` : ''}
-      </p>
-
-      <h2 class="section-title">What is here</h2>
-      <p>
-        Every member has a private space for their own photographs and
-        memories, and shares only what they choose to share, with the people
-        they choose. A few of those memories have been offered to this public
-        side, and you can read them.
-      </p>
-      <p>
-        Nothing appears on these public pages unless the member who owns it
-        asked for that <strong>and</strong> one of us read it first. That is
-        deliberate, and it is not going to change.
-      </p>
-
-      <a class="btn btn-block" href="/stories">Read our memories</a>
-      <p style="margin-top:1.5rem">
-        <a class="back" href="/contact">Get in touch with us</a>
-      </p>
+      <Panel id="whats-here">
+        <p class="eyebrow">What is here</p>
+        <h2>Private by default, public only by choice.</h2>
+        <p>
+          Every member has a private space for their own photographs and
+          memories, and shares only what they choose to share, with the people
+          they choose. A few of those memories have been offered to this public
+          side, and you can read them.
+        </p>
+        <p>
+          Nothing appears on these public pages unless the member who owns it
+          asked for that <strong>and</strong> one of us read it first. That is
+          deliberate, and it is not going to change.
+        </p>
+        <p style="margin-top:var(--space-md);display:flex;gap:var(--space-md);flex-wrap:wrap">
+          <a class="btn" href="/stories">Read our memories</a>
+          <a class="btn btn-secondary" href="/contact">Get in touch</a>
+        </p>
+      </Panel>
     </Layout>,
   );
 });
@@ -158,6 +205,7 @@ publicRoutes.get('/stories', async (c) => {
   return c.html(
     <Layout title="Stories & Memories" viewer={viewer ?? null} publicTab="stories"
             description="Memories the pioneer batch of Batticaloa University College has chosen to share.">
+      <p class="eyebrow">Shared with everyone</p>
       <h1>Stories and memories</h1>
       <p class="page-intro">
         These are the ones we have chosen to share with everyone. There are a
@@ -171,13 +219,19 @@ publicRoutes.get('/stories', async (c) => {
           <a class="btn" href="/our-story">Read about us instead</a>
         </div>
       ) : (
-        results.map((p) => (
-          <a class="card" href={`/stories/${p.id}`}>
-            <h2>{p.title || 'Untitled'}</h2>
-            <p class="card-meta">{p.author_name}</p>
-            {p.body && <p class="card-body">{p.body.slice(0, 200)}</p>}
-          </a>
-        ))
+        <ul class="ruled">
+          {results.map((p) => (
+            <li>
+              <a class="row" href={`/stories/${p.id}`}>
+                <span class="k">{p.author_name}</span>
+                <p class="v">
+                  <strong>{p.title || 'Untitled'}</strong>
+                  {p.body ? p.body.slice(0, 200) : ''}
+                </p>
+              </a>
+            </li>
+          ))}
+        </ul>
       )}
 
       {!viewer && (
@@ -217,20 +271,20 @@ publicRoutes.get('/stories/:id', async (c) => {
     <Layout title={post.title ?? 'A memory'} viewer={viewer ?? null} publicTab="stories"
             description={post.body?.slice(0, 180) ?? TAGLINE}
             back={{ href: '/stories', label: 'All our stories' }}>
+      <p class="eyebrow">{post.author_name}</p>
       <h1>{post.title || 'Untitled'}</h1>
-      <p class="card-meta">{post.author_name}</p>
 
       {media.map((m) =>
         m.kind === 'photo' ? (
           <img src={`/media/${m.id}`} alt={m.alt_text ?? ''} loading="lazy"
-               style="border-radius:14px;margin:1rem 0;display:block" />
+               style="margin:1rem 0;display:block;width:100%" />
         ) : m.kind === 'audio' ? (
           <audio controls preload="metadata" style="width:100%;margin:1rem 0">
             <source src={`/media/${m.id}`} type={m.mime_type} />
           </audio>
         ) : m.kind === 'video' ? (
           <video controls preload="metadata" playsinline
-                 style="width:100%;border-radius:14px;margin:1rem 0">
+                 style="width:100%;margin:1rem 0">
             <source src={`/media/${m.id}`} type={m.mime_type} />
           </video>
         ) : null,
@@ -269,6 +323,7 @@ const ContactPage = (props: {
 }) => (
   <Layout title="Contact" viewer={props.viewer ?? null} publicTab="contact"
           description="Get in touch with the pioneer batch of Batticaloa University College.">
+    <p class="eyebrow">Contact</p>
     <h1>Get in touch</h1>
 
     {props.sent ? (
