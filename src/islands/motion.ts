@@ -57,7 +57,37 @@ function markSection(index: number) {
   }
 }
 
-/* -- Jumping to a section -------------------------------------------------- */
+/* -- Showing a section ----------------------------------------------------- */
+
+/*
+ * One panel on screen at a time. No scrolling between them at all, which is
+ * what was asked for and, after CSS scroll-snap refused to be driven from
+ * JavaScript, also the only version that behaves the same way twice.
+ *
+ * `paged` is what activates the CSS that hides the others, and it is added
+ * here rather than in the markup so a member with no JavaScript gets every
+ * panel, stacked and scrollable, instead of a page showing one screen with no
+ * way to reach the rest.
+ */
+if (deck && panels.length > 1) deck.classList.add('paged');
+
+let current = -1;
+
+function showPanel(index: number) {
+  if (!panels.length) return;
+  const i = Math.max(0, Math.min(index, panels.length - 1));
+  if (i === current) return;
+  current = i;
+
+  panels.forEach((p, n) => p.classList.toggle('is-current', n === i));
+  // A panel that was scrolled internally should not stay scrolled when you
+  // come back to it having read the top.
+  panels[i].scrollTop = 0;
+  if (deck) deck.scrollTop = 0;
+
+  markSection(i);
+  enter(panels[i]);
+}
 
 for (const link of keys) {
   link.addEventListener('click', (e) => {
@@ -65,7 +95,7 @@ for (const link of keys) {
     const target = id ? document.getElementById(id) : null;
     if (!target) return;                    // let the plain #hash do its job
     e.preventDefault();
-    target.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
+    showPanel(panels.indexOf(target));
     // The hash still belongs in the URL so a section can be linked to and the
     // back button behaves. replaceState keeps it out of the history stack, so
     // "back" leaves the page rather than walking four sections first.
@@ -100,29 +130,11 @@ function enter(panel: HTMLElement) {
 }
 
 if (deck && panels.length) {
-  if ('IntersectionObserver' in window) {
-    const io = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          const panel = entry.target as HTMLElement;
-          markSection(panels.indexOf(panel));
-          enter(panel);
-        }
-      },
-      { root: deck, threshold: 0.55 },
-    );
-    for (const panel of panels) io.observe(panel);
-  }
-
-  markSection(0);
-  enter(panels[0]);
-
-  // Arriving on /reunion#programme should land on that panel, not the first.
-  if (location.hash.length > 1) {
-    const target = document.getElementById(location.hash.slice(1));
-    if (target) target.scrollIntoView({ behavior: 'auto', block: 'start' });
-  }
+  // Arriving on /reunion#programme should open that panel, not the first.
+  const fromHash = location.hash.length > 1
+    ? panels.findIndex((p) => p.id === location.hash.slice(1))
+    : -1;
+  showPanel(fromHash >= 0 ? fromHash : 0);
 }
 
 /* -- The sliding marker under the current bottom tab ----------------------- */

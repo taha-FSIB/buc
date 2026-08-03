@@ -190,8 +190,17 @@ body {
   overflow-wrap: break-word;
 }
 
-/* Nothing may ever push the page sideways, whatever slips through above. */
-html, body { overflow-x: hidden; }
+/*
+ * The document does not scroll. This is what actually enforces "no scrolling"
+ * — the deck below is the only scroller on the page.
+ *
+ * It was missing. The comment on .deck claimed the document could not scroll
+ * and nothing had ever set it; computed style read `overflow: hidden auto`,
+ * so the page was one long screen away from scrolling like any other site. It
+ * went unnoticed because every page was a single panel exactly one viewport
+ * tall, so there was nothing to scroll to yet.
+ */
+html, body { overflow: hidden; }
 
 /*
  * There is deliberately no entrance gate any more.
@@ -268,19 +277,37 @@ main.wrap {
  */
 .deck {
   height: 100dvh;
-  overflow-y: scroll;
-  scroll-snap-type: y mandatory;
-  scroll-behavior: smooth;
+  overflow-y: auto;
   scrollbar-width: none;
 }
 
 .deck::-webkit-scrollbar { display: none; }
 
+/*
+ * Paged mode: exactly one panel exists on screen at a time.
+ *
+ * This started as CSS scroll-snap — `scroll-snap-type: y mandatory` with
+ * full-viewport panels — and it was abandoned after it failed repeatedly and
+ * measurably. Chrome will not let a mandatory snap container be scrolled
+ * programmatically: tapping a keyword updated the URL and moved the deck
+ * nothing at all, confirmed at scrollTop 0 after a 1.5s wait, and the standard
+ * workaround of suspending snap for the trip did not fix it either — the deck
+ * then pinned itself at the last panel and refused every scrollTo.
+ *
+ * Snapping was only ever an indirect way to say "one screen at a time".
+ * Showing one panel says it directly, has no scroll position to get wrong, and
+ * is what the batch actually asked for: no scrolling.
+ *
+ * `paged` is added by motion.js, so without JavaScript every panel is present
+ * and the deck scrolls like an ordinary page. Nothing is ever hidden with no
+ * way to reach it.
+ */
+.deck.paged > .panel { display: none; }
+.deck.paged > .panel.is-current { display: flex; }
+
 .panel {
   min-height: 100dvh;
   max-height: 100dvh;
-  scroll-snap-align: start;
-  scroll-snap-stop: always;
   display: flex;
   flex-direction: column;
   /*
@@ -714,6 +741,62 @@ a.card:hover {
 
 @media (prefers-reduced-motion: reduce) {
   a.card:hover { transform: none; }
+}
+
+/* --- Ruled list: the contents page of a printed souvenir ---------------- */
+
+/*
+ * The alternative to a stack of bordered cards. Four cards in a column is four
+ * boxes competing for the same attention; the same four items as ruled rows
+ * read as one list with an order to it. Used wherever items are siblings —
+ * the feed, a group's members, the schedule, an admin queue.
+ */
+.ruled {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ruled > li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.3rem 1.3rem;
+  padding: 1rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.ruled > li:last-child { border-bottom: 1px solid var(--line); }
+
+/* The mono key on the left. Carries what KIND of row this is, which a card
+   title cannot do without repeating itself. */
+.ruled .k {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--teal);
+  padding-top: 0.25rem;
+}
+
+.ruled .v { margin: 0; color: var(--ink-soft); }
+.ruled .v strong { display: block; color: var(--ink); font-weight: 700; }
+
+/* A whole row that is a link. The row is the target, not the words in it. */
+.ruled a.row {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  gap: inherit;
+  min-height: var(--tap);
+  color: inherit;
+  text-decoration: none;
+}
+
+.ruled a.row:hover .v strong { color: var(--accent-dark); }
+
+@supports not (grid-template-columns: subgrid) {
+  .ruled a.row { display: block; }
 }
 
 /* --- Buttons ------------------------------------------------------------ */
