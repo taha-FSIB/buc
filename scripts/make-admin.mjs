@@ -6,14 +6,31 @@
  *
  * Prints the SQL and runs it through wrangler. Uses the same PBKDF2
  * parameters as src/lib/auth.ts — if you change them there, change them here.
+ *
+ * That instruction was not enough on its own. This ran at 210,000 iterations
+ * while workerd refuses anything above 100,000, and because Node has no such
+ * limit the account was created without complaint and only failed later, at
+ * every sign-in, as a 500. The assertion below now fails here instead.
  */
 import { execFileSync } from 'node:child_process';
 import { writeFileSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const PBKDF2_ITERATIONS = 210_000;
+const PBKDF2_ITERATIONS = 100_000;
+const WORKERS_MAX_ITERATIONS = 100_000;
 const ALPHABET = '23456789abcdefghjkmnpqrstuvwxyz';
+
+if (PBKDF2_ITERATIONS > WORKERS_MAX_ITERATIONS) {
+  console.error(
+    `This would write a hash at ${PBKDF2_ITERATIONS} iterations, which Node can\n`
+    + `produce but Cloudflare Workers cannot verify (its ceiling is\n`
+    + `${WORKERS_MAX_ITERATIONS}). The account would be created and then be\n`
+    + `impossible to sign in to. Lower PBKDF2_ITERATIONS here and in\n`
+    + `src/lib/auth.ts to match.`,
+  );
+  process.exit(1);
+}
 
 const [, , fullName, email, passphrase, ...rest] = process.argv;
 const remote = rest.includes('--remote');

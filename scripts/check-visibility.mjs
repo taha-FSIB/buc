@@ -33,7 +33,7 @@
  * mean the media rules hold — it means the rules that could be tested hold.
  */
 
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, pbkdf2Sync } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { writeFileSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -577,6 +577,69 @@ async function main() {
   sql([`UPDATE members SET status = 'active' WHERE id = '${PEOPLE.grpmate.id}';`]);
   assertReach('restored when the suspension is lifted',
     await status(`/talk/thread/${posts.hubThread}`, cookies.grpmate), true);
+
+  /* -- The other way in ---------------------------------------------------- */
+  // Everything above signs in with a link, so the passphrase path had no
+  // coverage at all. It was broken in production the whole time: workerd caps
+  // PBKDF2 at 100,000 iterations, the app asked for 210,000, and every attempt
+  // was a 500. Node has no such cap, so the account-creation script that wrote
+  // the hash never noticed. That is why the hash is written here with Node and
+  // then checked through the running Worker — the two must agree.
+  console.log('\nsigning in with a passphrase');
+  {
+    const PASS = 'a passphrase for the harness';
+    const salt = randomBytes(16);
+    const iters = 100_000;
+    const hash = pbkdf2Sync(PASS, salt, iters, 32, 'sha256').toString('hex');
+    sql([`UPDATE members SET passphrase_hash =
+            'pbkdf2$${iters}$${salt.toString('hex')}$${hash}'
+          WHERE id = '${PEOPLE.stranger.id}';`]);
+
+    const tryPass = async (passphrase) => {
+      const r = await fetch(`${BASE}/signin/passphrase`, {
+        method: 'POST', redirect: 'manual',
+        body: new URLSearchParams({ email: `${PEOPLE.stranger.id}@visibility.test`, passphrase }),
+      });
+      const got = typeof r.headers.getSetCookie === 'function'
+        ? r.headers.getSetCookie() : [r.headers.get('set-cookie')].filter(Boolean);
+      return { status: r.status, session: got.some((c) => c.includes('buc_session=')) };
+    };
+
+    checks++;
+    const right = await tryPass(PASS);
+    if (right.status === 303 && right.session) {
+      console.log('  ok    the right passphrase signs them in (303)');
+    } else {
+      failures++;
+      console.error(`  FAIL  the right passphrase returned ${right.status}`
+        + `${right.status >= 500 ? ' — the server threw' : ' and issued no session'}`);
+    }
+
+    checks++;
+    const wrong = await tryPass('not the passphrase');
+    if (wrong.status < 500 && !wrong.session) {
+      console.log(`  ok    a wrong one is refused (${wrong.status})`);
+    } else {
+      failures++;
+      console.error(`  FAIL  a wrong passphrase returned ${wrong.status}`
+        + `${wrong.session ? ' AND issued a session' : ''}`);
+    }
+
+    // A hash this platform cannot compute must be refused, not crashed on.
+    checks++;
+    sql([`UPDATE members SET passphrase_hash =
+            'pbkdf2$210000$${salt.toString('hex')}$${hash}'
+          WHERE id = '${PEOPLE.stranger.id}';`]);
+    const unreadable = await tryPass(PASS);
+    if (unreadable.status < 500 && !unreadable.session) {
+      console.log(`  ok    a hash it cannot check is refused, not thrown on (${unreadable.status})`);
+    } else {
+      failures++;
+      console.error(`  FAIL  an over-strength hash returned ${unreadable.status}`);
+    }
+
+    sql([`UPDATE members SET passphrase_hash = NULL WHERE id = '${PEOPLE.stranger.id}';`]);
+  }
 
   /* -- The way in, for somebody arriving for the first time ---------------- */
   console.log('\nthe first-run explanation');

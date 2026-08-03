@@ -5,16 +5,28 @@
  * a single-use link, and clicks it. A passphrase is the fallback for anyone
  * whose email is unreliable.
  *
- * Workers have no bcrypt/argon2, so passphrases use PBKDF2-SHA256 via WebCrypto
- * at 210,000 iterations (OWASP's 2023 floor for PBKDF2-SHA256). Session cookie
- * tokens and sign-in link tokens are random 256-bit values; only their SHA-256
- * digest is stored, so a leaked database still cannot be used to impersonate
- * anyone.
+ * Workers have no bcrypt/argon2, so passphrases use PBKDF2-SHA256 via WebCrypto.
+ * Session cookie tokens and sign-in link tokens are random 256-bit values; only
+ * their SHA-256 digest is stored, so a leaked database still cannot be used to
+ * impersonate anyone.
  */
 
 import { newId } from './ids';
 
-const PBKDF2_ITERATIONS = 210_000;
+/*
+ * 100,000 is not a preference, it is the ceiling: workerd refuses anything
+ * higher with `NotSupportedError: iteration counts above 100000 are not
+ * supported`. This was set to 210,000 to meet OWASP's floor, which Node
+ * accepted when writing hashes, so make-admin.mjs succeeded and every sign-in
+ * afterwards returned a 500. Raise this only if Cloudflare raises the cap.
+ *
+ * That leaves the stored hash weaker than OWASP would like against an offline
+ * attack on a stolen database. The mitigation is that a passphrase is the
+ * fallback here, not the way in — sign-in links are the normal path and are
+ * not guessable at all.
+ */
+const MAX_PBKDF2_ITERATIONS = 100_000;
+const PBKDF2_ITERATIONS = MAX_PBKDF2_ITERATIONS;
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 60; // 60 days — few re-logins.
 export const SESSION_COOKIE = 'buc_session';
 
@@ -45,6 +57,7 @@ function timingSafeEqual(a: string, b: string): boolean {
 async function pbkdf2(
   passphrase: string,
   salt: Uint8Array,
+  iterations: number,
 ): Promise<string> {
   const key = await crypto.subtle.importKey(
     'raw',
@@ -56,7 +69,7 @@ async function pbkdf2(
   const bits = await crypto.subtle.deriveBits(
     // Cast: workers-types narrows BufferSource to views over a plain
     // ArrayBuffer, while Uint8Array is typed over ArrayBufferLike.
-    { name: 'PBKDF2', hash: 'SHA-256', salt: salt as BufferSource, iterations: PBKDF2_ITERATIONS },
+    { name: 'PBKDF2', hash: 'SHA-256', salt: salt as BufferSource, iterations },
     key,
     256,
   );
@@ -66,7 +79,7 @@ async function pbkdf2(
 /** Produce a storable `pbkdf2$<iterations>$<salt>$<hash>` string. */
 export async function hashPassphrase(passphrase: string): Promise<string> {
   const salt = crypto.getRandomValues(new Uint8Array(16));
-  const hash = await pbkdf2(passphrase, salt);
+  const hash = await pbkdf2(passphrase, salt, PBKDF2_ITERATIONS);
   return `pbkdf2$${PBKDF2_ITERATIONS}$${toHex(salt.buffer)}$${hash}`;
 }
 
@@ -75,9 +88,28 @@ export async function verifyPassphrase(
   stored: string | null,
 ): Promise<boolean> {
   if (!stored) return false;
-  const [scheme, , saltHex, expected] = stored.split('$');
+  const [scheme, iterField, saltHex, expected] = stored.split('$');
   if (scheme !== 'pbkdf2' || !saltHex || !expected) return false;
-  const actual = await pbkdf2(passphrase, fromHex(saltHex));
+
+  // The iteration count was written into the hash so it could change later,
+  // and was then thrown away here — every verification silently assumed
+  // whatever the constant happened to be that day. Read it back instead.
+  const iterations = Number(iterField);
+  if (!Number.isInteger(iterations) || iterations < 1) return false;
+
+  // A hash written by a tool that did not share this ceiling (Node has none,
+  // and make-admin.mjs used to write 210,000) cannot be checked here at all.
+  // Refusing is right — but refusing silently would look to the member like a
+  // mistyped passphrase forever, so say so where an admin will see it.
+  if (iterations > MAX_PBKDF2_ITERATIONS) {
+    console.error(
+      `Stored passphrase needs ${iterations} PBKDF2 iterations; this platform `
+      + `allows ${MAX_PBKDF2_ITERATIONS}. Set the passphrase again to rewrite it.`,
+    );
+    return false;
+  }
+
+  const actual = await pbkdf2(passphrase, fromHex(saltHex), iterations);
   return timingSafeEqual(actual, expected);
 }
 
