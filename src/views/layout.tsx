@@ -112,11 +112,37 @@ export const Layout: FC<PropsWithChildren<LayoutProps>> = ({
     <body>
       <a class="skip-link" href="#main">Skip to main content</a>
 
-      <header class={timeline ? 'sectionbar' : 'sectionbar sectionbar-plain'}>
-        <div class="sectionbar-row">
+      {/*
+        One bar, at the top, two rows. The upper row is which page; the lower
+        row is where you are inside it. They were two separate bars — this one
+        and a tab bar fixed to the bottom of the window — and having both meant
+        deciding which was the navigation.
+      */}
+      <header class={sections && sections.length > 1 ? 'sitenav' : 'sitenav sitenav-plain'}>
+        <div class="sitenav-row">
           {/* Always the root: signed in that is the member feed, signed out it
               is the public home. Either way it is "the start". */}
           <a class="wordmark" href="/">BUC<span>.</span></a>
+
+          {viewer ? (
+            <nav class="tabbar" aria-label="Main">
+              {TABS.map(({ key, href, Icon, label }) => (
+                <a href={href} aria-current={tab === key ? 'page' : undefined}>
+                  <Icon />
+                  <span>{label}</span>
+                </a>
+              ))}
+            </nav>
+          ) : publicTab ? (
+            <nav class="tabbar" aria-label="Main">
+              {PUBLIC_TABS.map(({ key, href, Icon, label }) => (
+                <a href={href} aria-current={publicTab === key ? 'page' : undefined}>
+                  <Icon />
+                  <span>{label}</span>
+                </a>
+              ))}
+            </nav>
+          ) : null}
 
           {back ? (
             <a class="back" href={back.href}>
@@ -130,8 +156,10 @@ export const Layout: FC<PropsWithChildren<LayoutProps>> = ({
           ) : (
             <a class="header-link" href="/signin">Sign in</a>
           )}
+        </div>
 
-          {sections && sections.length > 1 && (
+        {sections && sections.length > 1 && (
+          <div class="sitenav-sections">
             <ul class="keys" aria-label="Sections of this page">
               {sections.map((s) => (
                 <li>
@@ -139,14 +167,13 @@ export const Layout: FC<PropsWithChildren<LayoutProps>> = ({
                 </li>
               ))}
             </ul>
-          )}
-        </div>
-
-        {timeline && (
-          <div class="timeline" aria-hidden="true">
-            <div class="timeline-rule"></div>
-            <div class="bead" id="bead" style="left:6%"></div>
-            <div class="timeline-years"><span>1979</span><span>2026</span></div>
+            {timeline && (
+              <div class="timeline" aria-hidden="true">
+                <div class="timeline-rule"></div>
+                <div class="bead" id="bead" style="left:6%"></div>
+                <div class="timeline-years"><span>1979</span><span>2026</span></div>
+              </div>
+            )}
           </div>
         )}
       </header>
@@ -159,26 +186,6 @@ export const Layout: FC<PropsWithChildren<LayoutProps>> = ({
       <main id="main" class="deck">
         {sections ? children : <Panel>{children}</Panel>}
       </main>
-
-      {viewer ? (
-        <nav class="tabbar" aria-label="Main">
-          {TABS.map(({ key, href, Icon, label }) => (
-            <a href={href} aria-current={tab === key ? 'page' : undefined}>
-              <Icon />
-              {label}
-            </a>
-          ))}
-        </nav>
-      ) : publicTab ? (
-        <nav class="tabbar" aria-label="Main">
-          {PUBLIC_TABS.map(({ key, href, Icon, label }) => (
-            <a href={href} aria-current={publicTab === key ? 'page' : undefined}>
-              <Icon />
-              {label}
-            </a>
-          ))}
-        </nav>
-      ) : null}
 
       {/* Deferred, so nothing anybody came here to read waits on it. */}
       <script src="/motion.js" defer></script>
