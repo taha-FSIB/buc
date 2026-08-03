@@ -1,268 +1,175 @@
-/**
- * Motion.
+/*
+ * Motion for the deck.
  *
- * Deliberately expressive: sections rise as you reach them, the headline
- * arrives a word at a time, photographs wipe open, the countdown counts, and
- * the tab bar's marker slides to where you are.
+ * The page does not scroll — `body { overflow: hidden }` — so nothing here may
+ * be driven by window scroll. Movement happens inside `main.deck`, which snaps
+ * one full-screen panel at a time, and IntersectionObserver against that
+ * scroller is what tells us which panel a member is looking at.
  *
- * The audience is still people in their sixties and seventies, so "expressive"
- * has limits that are not up for negotiation:
+ * Two rules, both learned the hard way on this project:
  *
- *   - Nothing is pinned and nothing is scrubbed. Hijacking the scroll — the
- *     one control somebody trusts — is where scroll animation stops being
- *     decoration and starts being an obstacle.
- *   - Every reveal plays once and stays played. Content that animates out
- *     again when you scroll back is content you have to chase.
- *   - Reduced motion is honoured everywhere, and it means NO motion, not less.
+ *   1. CSS NEVER hides content. The previous version put `main > *` at
+ *      opacity 0 from an inline head script and relied on JavaScript to bring
+ *      it back. In a background tab requestAnimationFrame does not run, so the
+ *      whole site rendered blank — a bug that only surfaced because a window
+ *      happened to be minimised during testing. Here the stylesheet has no
+ *      hiding rule at all and this file only ever animates TRANSFORMS. If it
+ *      fails to load, fails to parse, or throws on line one, every page is
+ *      still completely readable. That is worth more than a fade.
  *
- * FAILING SAFE
- * Content that starts invisible must never be able to stay invisible:
+ *   2. Nothing animates out. Content that leaves when you move away is content
+ *      somebody has to chase.
  *
- *   1. `html.anim` is added by an inline script in the head, so the CSS that
- *      hides anything only exists where JavaScript is already running.
- *   2. That script removes the class again after two seconds no matter what,
- *      so a bundle that is blocked or broken costs a pause, not the page.
- *   3. When this file does load it takes ownership immediately: it writes the
- *      hidden state as inline styles it controls and drops the class itself.
- *      Without that handover, step 2 would fire mid-scroll and flash every
- *      unrevealed section into view at once.
+ * ScrollTrigger is gone along with the window scroll it depended on, which
+ * also takes a good chunk off the bundle.
  */
 
 import { gsap } from 'gsap';
-import { ScrollTrigger } from 'gsap/ScrollTrigger';
 
-gsap.registerPlugin(ScrollTrigger);
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const deck = document.querySelector<HTMLElement>('main.deck');
+const panels = deck ? Array.from(deck.querySelectorAll<HTMLElement>('.panel')) : [];
 
-const root = document.documentElement;
-const main = document.querySelector('main');
+/* -- The section navbar: which keyword is lit, and where the bead sits ----- */
 
-/** Hand the page back from the CSS gate. Safe to call repeatedly. */
-const reveal = () => root.classList.remove('anim');
+const keys = Array.from(document.querySelectorAll<HTMLAnchorElement>('.keys a'));
+const bead = document.getElementById('bead');
+const keyStrip = document.querySelector<HTMLElement>('.keys');
 
-const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+function markSection(index: number) {
+  keys.forEach((a, i) => {
+    if (i === index) a.setAttribute('aria-current', 'true');
+    else a.removeAttribute('aria-current');
+  });
 
-/* -------------------------------------------------------------------------
- * Reduced motion: show everything, wire nothing.
- * ---------------------------------------------------------------------- */
-if (still || !main) {
-  if (main) gsap.set(Array.from(main.children), { opacity: 1, y: 0 });
-  reveal();
+  if (bead && panels.length > 1) {
+    // 6%..94% rather than 0..100, so the bead never half-hangs off the rule.
+    bead.style.left = `${(index / (panels.length - 1)) * 88 + 6}%`;
+  }
+
+  // Keep the live keyword visible when the strip is wider than the phone.
+  const active = keys[index];
+  if (active && keyStrip && keyStrip.scrollWidth > keyStrip.clientWidth) {
+    keyStrip.scrollTo({
+      left: Math.max(0, active.offsetLeft - 16),
+      behavior: reduced ? 'auto' : 'smooth',
+    });
+  }
 }
 
-if (!still && main) {
-  const blocks = Array.from(main.children) as HTMLElement[];
+/* -- Jumping to a section -------------------------------------------------- */
 
-  /* -----------------------------------------------------------------------
-   * Take ownership from the CSS before anything else happens.
-   * -------------------------------------------------------------------- */
-  gsap.set(blocks, { opacity: 0, y: 28 });
-  reveal();
-
-  /* -----------------------------------------------------------------------
-   * The ticker might never run.
-   *
-   * GSAP advances on requestAnimationFrame, and a browser does not call rAF
-   * for a page it is not painting — a background tab, a minimised window, a
-   * restored session. That matters here because the line above just made
-   * every block invisible and handed the CSS failsafe back. Without this,
-   * opening a link from WhatsApp in a new background tab and coming to it
-   * later could mean arriving at a blank page.
-   *
-   * setTimeout keeps running when rAF does not, so it is the right tool to
-   * ask the question with. If the ticker's frame counter has not moved by
-   * then, nothing is animating and nothing is going to be: show everything.
-   * If it has moved, this does nothing and the scroll reveals carry on.
-   */
-  const frameAtStart = gsap.ticker.frame;
-  setTimeout(() => {
-    if (gsap.ticker.frame !== frameAtStart) return;      // ticker is alive
-    ScrollTrigger.getAll().forEach((t) => t.kill());
-    gsap.set(blocks, { opacity: 1, y: 0, clearProps: 'transform,opacity' });
-    gsap.set(main.querySelectorAll('img'), { clearProps: 'clipPath,transform' });
-  }, 2500);
-
-  /* A tab that wakes up later has stale trigger positions — it measured them
-     against a viewport it was never painting. */
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') ScrollTrigger.refresh();
+for (const link of keys) {
+  link.addEventListener('click', (e) => {
+    const id = link.dataset.section;
+    const target = id ? document.getElementById(id) : null;
+    if (!target) return;                    // let the plain #hash do its job
+    e.preventDefault();
+    target.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
+    // The hash still belongs in the URL so a section can be linked to and the
+    // back button behaves. replaceState keeps it out of the history stack, so
+    // "back" leaves the page rather than walking four sections first.
+    history.replaceState(null, '', `#${id}`);
   });
+}
 
-  /* -----------------------------------------------------------------------
-   * The headline, a word at a time.
-   *
-   * Only split an h1 that is plain text — several carry a member's name in a
-   * nested element, and rebuilding those would throw the markup away.
-   * -------------------------------------------------------------------- */
-  const h1 = main.querySelector('h1');
-  let words: HTMLElement[] = [];
+/* -- Panel entrances ------------------------------------------------------- */
 
-  if (h1 && h1.childNodes.length === 1 && h1.firstChild?.nodeType === Node.TEXT_NODE) {
-    const text = h1.textContent ?? '';
-    h1.textContent = '';
-    words = text.split(/(\s+)/).map((chunk) => {
-      const span = document.createElement('span');
-      // Whitespace keeps its own span so the line can still break normally.
-      span.textContent = chunk;
-      if (chunk.trim()) span.className = 'word';
-      h1.appendChild(span);
-      return span;
-    }).filter((s) => s.className === 'word');
-  }
+/*
+ * Transform only. There is deliberately no opacity anywhere in here: a member
+ * whose ticker never runs sees the content sitting exactly where it belongs,
+ * having simply not moved into place.
+ */
+function enter(panel: HTMLElement) {
+  if (reduced || panel.dataset.entered === '1') return;
+  panel.dataset.entered = '1';
 
-  /* -----------------------------------------------------------------------
-   * Everything above the fold arrives on load; everything below waits until
-   * you reach it.
-   *
-   * ScrollTrigger.batch groups whatever crosses the line at roughly the same
-   * moment into one stagger, so a row of cards enters as a row rather than as
-   * six unrelated events.
-   * -------------------------------------------------------------------- */
-  ScrollTrigger.batch(blocks, {
-    start: 'top 88%',
-    once: true,
-    onEnter: (batch) => {
-      gsap.to(batch, {
-        opacity: 1,
-        y: 0,
-        duration: 0.75,
-        ease: 'power3.out',
-        stagger: { amount: Math.min(0.4, batch.length * 0.09) },
-        overwrite: true,
-        clearProps: 'transform,opacity',
-      });
-    },
+  const inner = panel.querySelector<HTMLElement>('.panel-inner');
+  const blocks = inner ? Array.from(inner.children) : [];
+  if (!blocks.length) return;
+
+  gsap.from(blocks, {
+    y: 18,
+    duration: 0.5,
+    ease: 'power2.out',
+    // `amount` spreads the whole stagger over a fixed time, so a panel with
+    // twelve rows does not take six times longer than one with two.
+    stagger: { amount: Math.min(0.28, blocks.length * 0.05) },
+    clearProps: 'transform',
   });
+}
 
-  /* -- The headline's words, riding just ahead of its block -------------- */
-  if (words.length) {
-    gsap.set(words, { display: 'inline-block' });
-    gsap.from(words, {
-      yPercent: 110,
-      opacity: 0,
-      duration: 0.85,
-      ease: 'power4.out',
-      stagger: 0.055,
-      delay: 0.1,
-      clearProps: 'transform,opacity,display',
-    });
-  }
-
-  /* -----------------------------------------------------------------------
-   * Photographs wipe open rather than fading.
-   *
-   * Only ones big enough for it to read as intentional — running this on a
-   * 56px avatar is a flicker, not a reveal.
-   * -------------------------------------------------------------------- */
-  const photos = (Array.from(main.querySelectorAll('img')) as HTMLImageElement[])
-    .filter((img) => img.getBoundingClientRect().width > 140);
-
-  if (photos.length) {
-    gsap.set(photos, { clipPath: 'inset(0% 0% 100% 0%)', scale: 1.08 });
-    ScrollTrigger.batch(photos, {
-      start: 'top 90%',
-      once: true,
-      onEnter: (batch) => {
-        gsap.to(batch, {
-          clipPath: 'inset(0% 0% 0% 0%)',
-          scale: 1,
-          duration: 1.0,
-          ease: 'power3.out',
-          stagger: 0.12,
-          overwrite: true,
-          clearProps: 'clipPath,transform',
-        });
+if (deck && panels.length) {
+  if ('IntersectionObserver' in window) {
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const panel = entry.target as HTMLElement;
+          markSection(panels.indexOf(panel));
+          enter(panel);
+        }
       },
+      { root: deck, threshold: 0.55 },
+    );
+    for (const panel of panels) io.observe(panel);
+  }
+
+  markSection(0);
+  enter(panels[0]);
+
+  // Arriving on /reunion#programme should land on that panel, not the first.
+  if (location.hash.length > 1) {
+    const target = document.getElementById(location.hash.slice(1));
+    if (target) target.scrollIntoView({ behavior: 'auto', block: 'start' });
+  }
+}
+
+/* -- The sliding marker under the current bottom tab ----------------------- */
+
+/*
+ * The CSS inset shadow is the marker when this never runs, which is what
+ * guarantees the current tab is not signalled by colour alone. `has-marker`
+ * retires that shadow, and is added only once the bar has actually been
+ * measured — so the two can never both be on screen, and neither can neither.
+ */
+const bar = document.querySelector<HTMLElement>('.tabbar');
+const currentTab = bar?.querySelector<HTMLElement>('a[aria-current="page"]');
+
+if (bar && currentTab) {
+  const marker = document.createElement('span');
+  marker.className = 'tab-marker';
+  bar.appendChild(marker);
+  bar.classList.add('has-marker');
+
+  const place = () => {
+    const barBox = bar.getBoundingClientRect();
+    const tabBox = currentTab.getBoundingClientRect();
+    gsap.set(marker, {
+      x: tabBox.left - barBox.left,
+      width: tabBox.width,
+      opacity: 1,
     });
-  }
-
-  /* -----------------------------------------------------------------------
-   * The countdown counts.
-   * -------------------------------------------------------------------- */
-  for (const el of Array.from(document.querySelectorAll<HTMLElement>('.tally'))) {
-    const target = Number(el.dataset.countTo ?? el.textContent ?? 0);
-    if (!Number.isFinite(target) || target <= 0) continue;
-    const counter = { n: 0 };
-    gsap.to(counter, {
-      n: target,
-      duration: Math.min(1.8, 0.6 + target * 0.02),
-      ease: 'power2.out',
-      delay: 0.35,
-      // Zeroed in onStart, NOT before the tween is built. Setting it to "0" up
-      // front meant that on any page whose ticker never ran — a background tab
-      // — the countdown sat there reading "0 days to go" for a reunion that is
-      // weeks away. A decoration that never plays should cost the animation,
-      // never the fact.
-      onStart: () => { el.textContent = '0'; },
-      onUpdate: () => { el.textContent = String(Math.round(counter.n)); },
-      onComplete: () => { el.textContent = String(target); },
-    });
-  }
-
-  /* -----------------------------------------------------------------------
-   * The tab bar's marker slides to the tab you are on.
-   *
-   * This is a multi-page site, so it happens once per load rather than
-   * following taps. The CSS keeps its own inset-shadow marker for the no-JS
-   * case; `has-marker` turns that off in favour of this one so there is never
-   * a pair of them.
-   * -------------------------------------------------------------------- */
-  const bar = document.querySelector<HTMLElement>('.tabbar');
-  const current = bar?.querySelector<HTMLElement>('a[aria-current="page"]');
-
-  if (bar && current) {
-    const marker = document.createElement('span');
-    marker.className = 'tab-marker';
-    marker.setAttribute('aria-hidden', 'true');
-    bar.appendChild(marker);
-    bar.classList.add('has-marker');
-
-    const place = (animate: boolean) => {
-      const x = current.offsetLeft;
-      const w = current.offsetWidth;
-      if (animate) {
-        gsap.fromTo(marker,
-          { x: x + w / 2, width: 0, opacity: 0 },
-          { x, width: w, opacity: 1, duration: 0.7, ease: 'power3.out', delay: 0.25 });
-      } else {
-        gsap.set(marker, { x, width: w, opacity: 1 });
-      }
-    };
-
-    place(true);
-    addEventListener('resize', () => place(false), { passive: true });
-  }
-
-  /* -----------------------------------------------------------------------
-   * Tap feedback.
-   *
-   * The one piece here that does work rather than decoration: on a slow
-   * connection the next page takes a second, and without an answer people tap
-   * again. Delegated, so it costs one listener and covers anything added later.
-   * -------------------------------------------------------------------- */
-  const PRESSABLE = '.btn, a.card, .tabbar a, .linklike, .card-choice';
-  const press = (e: Event, to: number) => {
-    // e.target is not always an Element. `pointerleave` on the document fires
-    // with the document itself as the target, and Document has no .closest —
-    // which threw a TypeError on every pointer exit until this check existed.
-    const t = e.target;
-    if (!(t instanceof Element)) return;
-    const el = t.closest(PRESSABLE);
-    if (el) gsap.to(el, { scale: to, duration: 0.14, ease: 'power2.out', overwrite: 'auto' });
   };
 
-  document.addEventListener('pointerdown', (e) => press(e, 0.97), { passive: true });
-  for (const evt of ['pointerup', 'pointercancel', 'pointerleave']) {
-    document.addEventListener(evt, (e) => press(e, 1), { passive: true });
-  }
-
-  /* -----------------------------------------------------------------------
-   * Photographs change the height of the page as they arrive, which moves
-   * every trigger below them. Without this, sections further down fire at the
-   * wrong scroll position on a slow connection — which is exactly the
-   * connection this site is built for.
-   * -------------------------------------------------------------------- */
-  addEventListener('load', () => ScrollTrigger.refresh());
+  place();
+  addEventListener('resize', place);
 }
 
-// Belt and braces, whatever happened above.
-reveal();
+/* -- Press feedback -------------------------------------------------------- */
+
+const PRESSABLE = '.btn, a.card, .tabbar a, .linklike, .card-choice, .keys a';
+
+function pressed(e: Event, down: boolean) {
+  const t = e.target;
+  // `pointerleave` on the document reports the document itself, which has no
+  // .closest — this threw on every mouse-out before the guard was added.
+  if (!(t instanceof Element)) return;
+  const el = t.closest<HTMLElement>(PRESSABLE);
+  if (!el || reduced) return;
+  gsap.to(el, { scale: down ? 0.985 : 1, duration: 0.12, ease: 'power2.out' });
+}
+
+document.addEventListener('pointerdown', (e) => pressed(e, true));
+document.addEventListener('pointerup', (e) => pressed(e, false));
+document.addEventListener('pointerleave', (e) => pressed(e, false));

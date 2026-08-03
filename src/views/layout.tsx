@@ -5,6 +5,12 @@ import {
   PenIcon, CalendarIcon, MailIcon, TalkIcon,
 } from './icons';
 
+/** One screen of a page. The keyword is what appears in the section navbar. */
+export interface Section {
+  id: string;
+  key: string;
+}
+
 interface LayoutProps {
   title: string;
   viewer: Viewer | null;
@@ -20,6 +26,21 @@ interface LayoutProps {
   back?: { href: string; label: string };
   /** Description for search engines and for a link pasted into WhatsApp. */
   description?: string;
+  /**
+   * The sections of THIS page, in order, as keywords for the navbar.
+   *
+   * Omit it and the page renders as a single panel — which is what every page
+   * not yet cut into sections does, and why this could be rolled out without a
+   * flag day. A one-panel page still cannot scroll the document; if its
+   * content is taller than the screen the panel scrolls inside itself.
+   */
+  sections?: Section[];
+  /**
+   * Draw the 1979-2026 rule under the keywords. Only true where those years
+   * carry meaning — the public pages and the story. On /admin/members it would
+   * be a picture of nothing, and it costs 1.8rem of a phone screen.
+   */
+  timeline?: boolean;
 }
 
 /*
@@ -46,84 +67,97 @@ const PUBLIC_TABS = [
   { key: 'contact', href: '/contact',    Icon: MailIcon,     label: 'Contact' },
 ] as const;
 
+/**
+ * One full screen. Pages that declare `sections` wrap each screen in this, and
+ * the `id` must match the section's `id` or the navbar keyword will not track.
+ */
+export const Panel: FC<PropsWithChildren<{ id?: string; list?: boolean }>> = ({
+  id, list, children,
+}) => (
+  <section class={list ? 'panel panel-list' : 'panel'} id={id}>
+    <div class="panel-inner">{children}</div>
+  </section>
+);
+
 export const Layout: FC<PropsWithChildren<LayoutProps>> = ({
-  title, viewer, tab, publicTab, back, description, children,
+  title, viewer, tab, publicTab, back, description, sections, timeline, children,
 }) => (
   <html lang="en">
     <head>
       <meta charset="utf-8" />
-      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      {/*
+        No maximum-scale and no user-scalable=no. Pinch-zoom is the one
+        accessibility control every member already knows how to use, and a
+        design confident in its own type size has no reason to take it away.
+      */}
+      <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
       <title>{title} · BUC Alumni</title>
       {description && <meta name="description" content={description} />}
       {description && <meta property="og:description" content={description} />}
       <meta property="og:title" content={`${title} · BUC Alumni`} />
       <meta property="og:type" content="website" />
-      <link rel="preconnect" href="https://fonts.googleapis.com" />
-      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
       {/*
-        Atkinson Hyperlegible carries no Tamil or Sinhala glyphs, so a
-        transcript in either would fall back to whatever the phone happens to
-        have — which on a good number of older Android handsets is a row of
-        empty boxes. Noto covers both. The stylesheet declares unicode-range
-        per family, so a page with no Tamil or Sinhala on it downloads neither
-        font file; the cost of carrying them is one stylesheet request.
+        The typefaces are served from this Worker, not from a font CDN. Two DNS
+        lookups and two TLS handshakes used to stand between a member on mobile
+        data and the first glyph on the page. Preloaded because the body face
+        is on the critical path for every screen.
       */}
       <link
-        rel="stylesheet"
-        href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Noto+Sans+Tamil:wght@400;700&family=Noto+Sans+Sinhala:wght@400;700&display=swap"
+        rel="preload" as="font" type="font/woff2" crossorigin=""
+        href="/fonts/merriweather-400.woff2"
       />
       <link rel="stylesheet" href="/styles.css" />
-      <meta name="theme-color" content="#fffbeb" />
-      {/*
-        Inline, in the head, on purpose — it has to run before the first paint
-        or the page visibly flashes its content and then hides it again.
-
-        It marks the document as "about to animate", which is the only thing
-        that makes `main`'s children start invisible. Two consequences worth
-        keeping: with JavaScript off the class never appears and the page is
-        simply readable, and the timeout below removes it regardless, so a
-        motion.js that is slow, blocked or broken costs two seconds rather
-        than the entire site. Anybody who has asked their device for reduced
-        motion is skipped here entirely.
-      */}
-      <script
-        dangerouslySetInnerHTML={{
-          __html:
-            '(function(d){try{if(matchMedia("(prefers-reduced-motion: reduce)").matches)return}'
-            + 'catch(e){}d.className+=" anim";'
-            + 'setTimeout(function(){d.classList.remove("anim")},2000)})(document.documentElement)',
-        }}
-      />
+      <meta name="theme-color" content="#fbf6ea" />
     </head>
     <body>
       <a class="skip-link" href="#main">Skip to main content</a>
 
-      <header class="site-header">
-        <div class="wrap">
+      <header class={timeline ? 'sectionbar' : 'sectionbar sectionbar-plain'}>
+        <div class="sectionbar-row">
           {/* Always the root: signed in that is the member feed, signed out it
               is the public home. Either way it is "the start". */}
-          <a class="brand" href="/">
-            BUC Alumni
-            <span>Pioneer Batch</span>
-          </a>
-          {viewer ? (
+          <a class="wordmark" href="/">BUC<span>.</span></a>
+
+          {back ? (
+            <a class="back" href={back.href}>
+              <BackIcon />
+              {back.label}
+            </a>
+          ) : viewer ? (
             <a class="header-link" href="/more">
               {viewer.preferred_name ?? viewer.full_name}
             </a>
           ) : (
-            <a class="btn btn-secondary btn-compact" href="/signin">Sign in</a>
+            <a class="header-link" href="/signin">Sign in</a>
+          )}
+
+          {sections && sections.length > 1 && (
+            <ul class="keys" aria-label="Sections of this page">
+              {sections.map((s) => (
+                <li>
+                  <a href={`#${s.id}`} data-section={s.id}>{s.key}</a>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
+
+        {timeline && (
+          <div class="timeline" aria-hidden="true">
+            <div class="timeline-rule"></div>
+            <div class="bead" id="bead" style="left:6%"></div>
+            <div class="timeline-years"><span>1979</span><span>2026</span></div>
+          </div>
+        )}
       </header>
 
-      <main id="main" class="wrap">
-        {back && (
-          <a class="back" href={back.href}>
-            <BackIcon />
-            {back.label}
-          </a>
-        )}
-        {children}
+      {/*
+        Still `main`, still `#main`, so the skip link and anything else keyed to
+        it keep working. It is the scroller now: the document cannot scroll,
+        this can, and it snaps a panel at a time.
+      */}
+      <main id="main" class="deck">
+        {sections ? children : <Panel>{children}</Panel>}
       </main>
 
       {viewer ? (
