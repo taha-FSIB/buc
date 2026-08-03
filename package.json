@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build:islands": "node scripts/build-islands.mjs",
-    "dev": "npm run build:islands -- --dev && wrangler dev",
+    "dev": "npm run build:islands -- --dev && npm run db:local && wrangler dev",
     "build": "npm run build:islands",
     "deploy": "npm run build:islands && wrangler deploy",
     "db:local": "wrangler d1 migrations apply buc_alumni --local",
